@@ -122,13 +122,24 @@
       "enabled": true
     },
     {
-      "name": "FordLatTuningPCBlendRatio",
-      "default": 0.30,
+      "name": "FordLatTuningPCBlendRatio_high_C",
+      "default": 0.40,
       "min": 0.0,
       "max": 1.0,
       "type": "float",
       "flags": ["PERSISTENT", "BACKUP"],
-      "ccProp": "pc_blend_ratio",
+      "ccProp": "pc_blend_ratio_high_C",
+      "create_default": true,
+      "enabled": true
+    },
+    {
+      "name": "FordLatTuningPCBlendRatio_low_C",
+      "default": 0.75,
+      "min": 0.0,
+      "max": 1.0,
+      "type": "float",
+      "flags": ["PERSISTENT", "BACKUP"],
+      "ccProp": "pc_blend_ratio_low_C",
       "create_default": true,
       "enabled": true
     },
