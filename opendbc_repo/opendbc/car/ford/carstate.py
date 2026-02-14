@@ -23,6 +23,8 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
     CarStateBase.__init__(self, CP, CP_SP)
     MadsCarState.__init__(self, CP, CP_SP)
     CarStateExt.__init__(self, CP, CP_SP)
+    # Track ICBM's sendButton state from previous frame for carstate_ext to filter ICBM-sent buttons
+    self.icbm_send_button_prev = structs.IntelligentCruiseButtonManagement.SendButtonState.none
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     self.params = Params()
     # self.ford_can_parser = FordCanParser(CP)
@@ -181,6 +183,14 @@ class CarState(CarStateBase, MadsCarState, CarStateExt):
       *create_button_events(self.lc_button, prev_lc_button, {1: ButtonType.lkas}),
       *self.button_events,
     ]
+
+    # Store ICBM's sendButton state from previous frame in CarStateSP for carstate_ext to use
+    # This allows carstate_ext to filter ICBM-sent button presses in the next frame
+    # This is updated by carcontroller after ICBM runs (stored in ret.icbm_send_button_prev),
+    # so we read it from ret and store it for next frame
+    if hasattr(ret, 'icbm_send_button_prev'):
+      self.icbm_send_button_prev = ret.icbm_send_button_prev
+    ret_sp.icbm_send_button_prev = self.icbm_send_button_prev
 
     self.car_state_bp_msg = self.update_car_state_bp(cp, cp_cam)
     return ret, ret_sp

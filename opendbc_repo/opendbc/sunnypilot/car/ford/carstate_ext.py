@@ -35,6 +35,9 @@ class CarStateExt:
     self.cruise_enabled_prev = False
     # Track if mainCruise was pressed recently (to handle delayed cruise enable)
     self.main_cruise_pressed_recently = False
+    # Track ICBM's sendButton state from previous frame to filter ICBM-sent button presses
+    # This prevents ICBM's button presses from being detected as manual button presses by SLA
+    self.icbm_send_button_prev = structs.IntelligentCruiseButtonManagement.SendButtonState.none
 
   def update(self, ret: structs.CarState, ret_sp: structs.CarStateSP, can_parsers: dict[StrEnum, CANParser]):
     """
@@ -85,17 +88,24 @@ class CarStateExt:
           else:
             event_type = 9  # setCruise
 
-          # Emit the appropriate event
-          if self.button_states.get(event_type, False) != signal_state:
-            event = structs.CarState.ButtonEvent.new_message()
-            event.type = event_type
-            event.pressed = signal_state
-            button_events.append(event)
-            # Remember which event type we emitted for this signal
-            self.last_emitted_event[button.can_msg] = event_type
-            cloudlog.warning(f"Ford ButtonEvent: type={event_type}, pressed={signal_state}, signal={button.can_msg}={signal_value}, cruise_enabled={cruise_enabled}")
+          # Filter out ICBM-sent button presses: if ICBM's sendButton was increase in previous frame,
+          # and this is an accelCruise event (type 3), don't emit it to prevent SLA from thinking user is manually adjusting.
+          is_icbm_button = (cruise_enabled and event_type == 3 and 
+                           self.icbm_send_button_prev == structs.IntelligentCruiseButtonManagement.SendButtonState.increase)
 
-          # Update state for both event types
+          # Only emit event if not from ICBM (or if ICBM not available)
+          if not is_icbm_button or not self.CP_SP.intelligentCruiseButtonManagementAvailable:
+            # Emit the appropriate event
+            if self.button_states.get(event_type, False) != signal_state:
+              event = structs.CarState.ButtonEvent.new_message()
+              event.type = event_type
+              event.pressed = signal_state
+              button_events.append(event)
+              # Remember which event type we emitted for this signal
+              self.last_emitted_event[button.can_msg] = event_type
+              cloudlog.warning(f"Ford ButtonEvent: type={event_type}, pressed={signal_state}, signal={button.can_msg}={signal_value}, cruise_enabled={cruise_enabled}, filtered_icbm={is_icbm_button}")
+
+          # Update state for both event types (always update state, even if filtered)
           self.button_states[3] = signal_state  # accelCruise
           self.button_states[9] = signal_state  # setCruise
         elif not signal_state and (prev_accel_state != signal_state or prev_set_state != signal_state):
@@ -130,17 +140,24 @@ class CarStateExt:
           else:
             event_type = 9  # setCruise
 
-          # Emit the appropriate event
-          if self.button_states.get(event_type, False) != signal_state:
-            event = structs.CarState.ButtonEvent.new_message()
-            event.type = event_type
-            event.pressed = signal_state
-            button_events.append(event)
-            # Remember which event type we emitted for this signal
-            self.last_emitted_event[button.can_msg] = event_type
-            cloudlog.warning(f"Ford ButtonEvent: type={event_type}, pressed={signal_state}, signal={button.can_msg}={signal_value}, cruise_enabled={cruise_enabled}")
+          # Filter out ICBM-sent button presses: if ICBM's sendButton was decrease in previous frame,
+          # and this is a decelCruise event (type 4), don't emit it to prevent SLA from thinking user is manually adjusting.
+          is_icbm_button = (cruise_enabled and event_type == 4 and 
+                           self.icbm_send_button_prev == structs.IntelligentCruiseButtonManagement.SendButtonState.decrease)
 
-          # Update state for both event types
+          # Only emit event if not from ICBM (or if ICBM not available)
+          if not is_icbm_button or not self.CP_SP.intelligentCruiseButtonManagementAvailable:
+            # Emit the appropriate event
+            if self.button_states.get(event_type, False) != signal_state:
+              event = structs.CarState.ButtonEvent.new_message()
+              event.type = event_type
+              event.pressed = signal_state
+              button_events.append(event)
+              # Remember which event type we emitted for this signal
+              self.last_emitted_event[button.can_msg] = event_type
+              cloudlog.warning(f"Ford ButtonEvent: type={event_type}, pressed={signal_state}, signal={button.can_msg}={signal_value}, cruise_enabled={cruise_enabled}, filtered_icbm={is_icbm_button}")
+
+          # Update state for both event types (always update state, even if filtered)
           self.button_states[4] = signal_state  # decelCruise
           self.button_states[9] = signal_state  # setCruise
         elif not signal_state and (prev_decel_state != signal_state or prev_set_state != signal_state):
@@ -252,6 +269,10 @@ class CarStateExt:
 
     # Update previous cruise state
     self.cruise_enabled_prev = cruise_enabled
+
+    # Update ICBM sendButton state for next frame (read from ret_sp which is updated by carcontroller)
+    # This tracks ICBM's sendButton state so we can filter ICBM-sent buttons in the next frame
+    self.icbm_send_button_prev = ret_sp.icbm_send_button_prev
 
     self.button_events = button_events
 
