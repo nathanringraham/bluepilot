@@ -127,6 +127,17 @@ class BluePilotLayout(Widget):
       icon="warning.png"
     )
 
+    # Ford long: divisor for following gas/accel ROC (effective rate = ROC/this value)
+    self._ui_roc_modifier = float_control_item(
+      lambda: tr("ROC Modifier"),
+      lambda: tr("Divisor for following rate-of-change (10–300). Higher = smoother, lower = more responsive."),
+      param="FordUIROCModifier",
+      min_value=10.0,
+      max_value=300.0,
+      step=10.0,
+      icon="speed_limit.png"
+    )
+
     # Human turn detection toggle
     self._enable_human_turn_detection = toggle_item(
       lambda: tr("Enable Human Turn Detection"),
@@ -263,6 +274,7 @@ class BluePilotLayout(Widget):
       self._show_ford_radar_overlay,
       self._show_hybrid_battery_status,
       self._show_hybrid_power_flow,
+      self._ui_roc_modifier,
       self._enable_human_turn_detection,
       self._lane_change_factor_high,
       self._enable_lane_positioning,

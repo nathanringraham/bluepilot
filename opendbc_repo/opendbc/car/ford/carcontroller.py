@@ -167,6 +167,7 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
     self.brake_actuate_release = -0.04 # at what accel limit do we release brakes
     self.precharge_actuate_target = -0.08 # at what accel limit do we engage precharge
     self.precharge_actuate_release = -0.04 # at what accel limit do we release precharge
+    self.UI_ROC_MODIFIER = 100.0  # divisor for following gas/accel ROC; updated from param FordUIROCModifier
 
     # # Curvature variables
     self.curvature_lookup_time = 0.42 #from lagd
@@ -300,6 +301,11 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
     except (TypeError, ValueError):
       self.following_accel_ROC = 0.025
     self.following_accel_ROC = float(np.clip(self.following_accel_ROC, 0.005, 0.2))
+    try:
+      self.UI_ROC_MODIFIER = float(self.params.get("FordUIROCModifier", return_default=True))
+    except (TypeError, ValueError):
+      self.UI_ROC_MODIFIER = 100.0
+    self.UI_ROC_MODIFIER = float(np.clip(self.UI_ROC_MODIFIER, 10.0, 300.0))
     self.disable_BP_long_UI = self.params.get_bool("disable_BP_long_UI")
 
   def handle_post_lane_change_transition(self, path_angle, path_offset, desired_curvature_rate):
@@ -907,10 +913,9 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
 
         # now let's apply some rate limits, to keep the places where we choose op_accel or op_gas from moving too fast
         # but only apply the limits if there is no imminent chance of a collision
-        UI_ROC_MODIFIER = 500 # to keep UI variables a reasonable number, divide them in carcontroller
         if ttc_sec > 8.0 and lead_time_sec > 0.5:
-          bp_gas = clip(bp_gas, self.bp_gas_last - self.following_gas_ROC/UI_ROC_MODIFIER, self.bp_gas_last + self.following_gas_ROC/UI_ROC_MODIFIER)
-          bp_accel = clip(bp_accel, self.bp_accel_last - self.following_accel_ROC/UI_ROC_MODIFIER, self.bp_accel_last + self.following_accel_ROC/UI_ROC_MODIFIER)
+          bp_gas = clip(bp_gas, self.bp_gas_last - self.following_gas_ROC / self.UI_ROC_MODIFIER, self.bp_gas_last + self.following_gas_ROC / self.UI_ROC_MODIFIER)
+          bp_accel = clip(bp_accel, self.bp_accel_last - self.following_accel_ROC / self.UI_ROC_MODIFIER, self.bp_accel_last + self.following_accel_ROC / self.UI_ROC_MODIFIER)
 
         # Set brake_actuate and precharge_actuate flags (initialized False above)
         if bp_accel < self.brake_actuate_target:
