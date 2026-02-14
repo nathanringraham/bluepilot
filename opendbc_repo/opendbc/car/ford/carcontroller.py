@@ -160,12 +160,12 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
     # Long Control Variables
     self.MAX_URBAN_SPEED_MPH = 45.0
     self.following_gas_ROC = 0.05 # amount that gas can change per scan when in following mode
-    self.following_accel_ROC = 0.025  # amount that accel can change per scan when in following mode
+    # 0.1/s at 50 Hz long control (ACC_CONTROL_STEP=2, 100 Hz base) => 0.1/50 = 0.002 per scan
+    self.following_accel_ROC = 0.002  # max accel change per scan when in following mode
     self.brake_actuate_target = -0.14 # at what accel limit do we engage brakes
     self.brake_actuate_release = -0.06 # at what accel limit do we release brakes
     self.precharge_actuate_target = -0.12 # at what accel limit do we engage precharge
     self.precharge_actuate_release = -0.06 # at what accel limit do we release precharge
-    self.UI_ROC_MODIFIER = 100.0  # divisor for following gas/accel ROC; updated from param FordUIROCModifie
 
     # # Curvature variables
     self.curvature_lookup_time = 0.42 #from lagd
@@ -288,22 +288,7 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
     self.enable_lanefull_mode = self.params.get_bool("enable_lane_full_mode")
     self.custom_profile = int(self.params.get("custom_profile", return_default=True))
     self.LC_PID_gain_UI = float(self.params.get("LC_PID_gain_UI", return_default=True))
-    # Ford long: rate-of-change limits when following a lead (gas and accel per scan)
-    try:
-      self.following_gas_ROC = float(self.params.get("FordFollowingGasROC", return_default=True))
-    except (TypeError, ValueError):
-      self.following_gas_ROC = 0.05
-    self.following_gas_ROC = float(np.clip(self.following_gas_ROC, 0.01, 0.5))
-    try:
-      self.following_accel_ROC = float(self.params.get("FordFollowingAccelROC", return_default=True))
-    except (TypeError, ValueError):
-      self.following_accel_ROC = 0.025
-    self.following_accel_ROC = float(np.clip(self.following_accel_ROC, 0.005, 0.2))
-    try:
-      self.UI_ROC_MODIFIER = float(self.params.get("FordUIROCModifier", return_default=True))
-    except (TypeError, ValueError):
-      self.UI_ROC_MODIFIER = 100.0
-    self.UI_ROC_MODIFIER = float(np.clip(self.UI_ROC_MODIFIER, 10.0, 300.0))
+    # Ford long: bypass BP longitudinal toggle (gas/accel ROC use __init__ defaults only)
     self.disable_BP_long_UI = self.params.get_bool("disable_BP_long_UI")
 
   def handle_post_lane_change_transition(self, path_angle, path_offset, desired_curvature_rate):
@@ -889,8 +874,8 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
 
         # limits when gaining
         if gaining:
-          if lead_time_sec < 2.5:
-              max_follow_gas = 0.0 # if we are within 2.5 seconds and gaining, why press the gas?
+          if lead_time_sec < 1.5:
+              max_follow_gas = 0.0 # if we are within 1.5 seconds and gaining, why press the gas?
               min_follow_gas = 0.0
           else:
              max_follow_gas = op_gas
@@ -917,11 +902,10 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
         bp_gas = clip(op_gas, min_follow_gas, max_follow_gas)
         bp_accel = clip(op_accel, min_follow_accel, max_follow_accel)
 
-        # now let's apply some rate limits, to keep the places where we choose op_accel or op_gas from moving too fast
+        # now let's apply some rate limits, not much, just try to dampen the initial hit when braking
         # but only apply the limits if there is no imminent chance of a collision
-        # if ttc_sec > 8.0 and lead_time_sec > 0.5:
-          # bp_gas = clip(bp_gas, self.bp_gas_last - self.following_gas_ROC / self.UI_ROC_MODIFIER, self.bp_gas_last + self.following_gas_ROC / self.UI_ROC_MODIFIER)
-          # bp_accel = clip(bp_accel, self.bp_accel_last - self.following_accel_ROC / self.UI_ROC_MODIFIER, self.bp_accel_last + self.following_accel_ROC / self.UI_ROC_MODIFIER)
+        if ttc_sec > 8.0 and lead_time_sec > 0.5:
+          bp_accel = clip(bp_accel, self.bp_accel_last - self.following_accel_ROC, 999) #only limit the downward change of braking
 
         # Set brake_actuate and precharge_actuate flags (initialized False above)
         if bp_accel < self.brake_actuate_target:
