@@ -53,7 +53,20 @@ class IntelligentCruiseButtonManagement:
     speed_conv = CV.MS_TO_KPH if self.is_metric else CV.MS_TO_MPH
     ms_conv = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
 
-    self.v_target_ms_last = apply_hysteresis(LP_SP.vTarget, self.v_target_ms_last, HYST_GAP * ms_conv)
+    # For ICBM, when SLA is in preActive state providing a target, use SLA's target directly
+    # instead of the planner's selected target. This allows ICBM to see SLA's target even
+    # when the planner selects cruise as the minimum (e.g., SLA wants 30 mph but cruise is 25 mph).
+    # This breaks the circular dependency: SLA preActive -> ICBM adjusts cluster -> SLA becomes active.
+    sla_preactive = LP_SP.speedLimit.assist.state == custom.LongitudinalPlanSP.SpeedLimit.AssistState.preActive
+    sla_target_valid = LP_SP.speedLimit.assist.vTarget != 255.0  # V_CRUISE_UNSET
+    use_sla_target = sla_preactive and sla_target_valid and self.CP_SP.intelligentCruiseButtonManagementAvailable
+    
+    if use_sla_target:
+      v_target_ms = LP_SP.speedLimit.assist.vTarget
+    else:
+      v_target_ms = LP_SP.vTarget
+
+    self.v_target_ms_last = apply_hysteresis(v_target_ms, self.v_target_ms_last, HYST_GAP * ms_conv)
 
     self.v_target = round(self.v_target_ms_last * speed_conv)
     self.v_cruise_min = get_minimum_set_speed(self.is_metric)
