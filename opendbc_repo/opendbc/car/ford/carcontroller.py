@@ -161,10 +161,10 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
     self.MAX_URBAN_SPEED_MPH = 45.0
     self.following_gas_ROC = 0.05 # amount that gas can change per scan when in following mode
     self.following_accel_ROC = 0.025  # amount that accel can change per scan when in following mode
-    self.brake_actuate_target = -0.12 # at what accel limit do we engage brakes
-    self.brake_actuate_release = -0.04 # at what accel limit do we release brakes
-    self.precharge_actuate_target = -0.08 # at what accel limit do we engage precharge
-    self.precharge_actuate_release = -0.04 # at what accel limit do we release precharge
+    self.brake_actuate_target = -0.14 # at what accel limit do we engage brakes
+    self.brake_actuate_release = -0.06 # at what accel limit do we release brakes
+    self.precharge_actuate_target = -0.12 # at what accel limit do we engage precharge
+    self.precharge_actuate_release = -0.06 # at what accel limit do we release precharge
     self.UI_ROC_MODIFIER = 100.0  # divisor for following gas/accel ROC; updated from param FordUIROCModifie
 
     # # Curvature variables
