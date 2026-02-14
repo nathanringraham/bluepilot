@@ -928,7 +928,7 @@ class CarController(CarControllerBase): #, IntelligentCruiseButtonManagementInte
         # When we have a lead, require lead speed > 40 mph so we don't coast into a traffic jam; when no lead, allow BP long
         apply_bp_long = (self.disable_BP_long_UI == False) and (v_ego_mph > self.MAX_URBAN_SPEED_MPH) and (gasPressed == False) and (brakePressed == False) and (lead is None or v_lead_mph > 40.0)
 
-        if apply_bp_long:
+        if apply_bp_long and CC.longActive:
           accel = bp_accel
           gas = bp_gas
           brake_actuate = bp_brake_actuate
