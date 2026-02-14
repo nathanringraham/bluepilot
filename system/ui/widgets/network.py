@@ -152,16 +152,6 @@ class AdvancedNetworkSettings(Widget):
     wifi_metered_btn = ListItem(lambda: tr("Wi-Fi Network Metered"), description=lambda: tr("Prevent large data uploads when on a metered Wi-Fi connection"),
                                 action_item=self._wifi_metered_action)
 
-    # Preferred Network selector
-    self._preferred_network_action = ButtonAction(lambda: tr("SELECT"))
-    self._preferred_network_action.set_value(lambda: self._get_preferred_network_display())
-    self._preferred_network_btn = ListItem(lambda: tr("Preferred Network"), 
-                                           description=lambda: tr("Automatically connect to this network when available"),
-                                           action_item=self._preferred_network_action, 
-                                           callback=self._select_preferred_network)
-    self._saved_networks: list[Network] = []
-    self._preferred_network_dialog: MultiOptionDialog | None = None
-
     items: list[Widget] = [
       tethering_btn,
       tethering_password_btn,
@@ -170,7 +160,6 @@ class AdvancedNetworkSettings(Widget):
       self._apn_btn,
       self._cellular_metered_btn,
       wifi_metered_btn,
-      self._preferred_network_btn,
       button_item(lambda: tr("Hidden Network"), lambda: tr("CONNECT"), callback=self._connect_to_hidden_network),
     ]
 
@@ -184,34 +173,6 @@ class AdvancedNetworkSettings(Widget):
     self._tethering_action.set_enabled(True)
     self._tethering_action.set_state(self._wifi_manager.is_tethering_active())
     self._tethering_password_action.set_enabled(True)
-
-    # Update saved networks list for preferred network selector
-    # Note: This only includes networks currently in scan results, not all saved networks
-    self._saved_networks = [n for n in networks if n.is_saved]
-    self._preferred_network_action.set_enabled(len(self._saved_networks) > 0)
-    
-    # Check if preferred network is still saved in NetworkManager (not just in scan results)
-    # This ensures we don't clear the preferred network when it's just out of range
-    if Params is not None:
-      try:
-        favorite_value = self._params.get("WifiFavoriteSSID")
-        current_favorite = ""
-        if favorite_value:
-          if isinstance(favorite_value, bytes):
-            current_favorite = favorite_value.decode('utf-8', errors='replace').strip('\x00')
-          else:
-            current_favorite = str(favorite_value).strip('\x00')
-        if current_favorite:
-          # Check NetworkManager's saved connections directly, not scan results
-          # This way we only clear if the network was actually forgotten, not just out of range
-          saved_connections = self._wifi_manager._get_connections()
-          if current_favorite not in saved_connections:
-            # Network is no longer saved in NetworkManager (user forgot it), clear preferred setting
-            self._params.put("WifiFavoriteSSID", "")
-            cloudlog.info(f"Cleared preferred network '{current_favorite}' - network no longer saved in NetworkManager")
-      except Exception as e:
-        cloudlog.debug(f"Error checking preferred network: {e}")
-        pass
 
     if self._wifi_manager.is_tethering_active() or self._wifi_manager.ipv4_address == "":
       self._wifi_metered_action.set_enabled(False)
@@ -261,76 +222,6 @@ class AdvancedNetworkSettings(Widget):
     metered_type = {0: MeteredType.UNKNOWN, 1: MeteredType.YES, 2: MeteredType.NO}.get(metered, MeteredType.UNKNOWN)
     self._wifi_metered_action.set_enabled(False)
     self._wifi_manager.set_current_network_metered(metered_type)
-
-  def _get_preferred_network_display(self) -> str:
-    """Get the display text for preferred network"""
-    if Params is None:
-      return tr("None")
-    try:
-      favorite_value = self._params.get("WifiFavoriteSSID")
-      if favorite_value:
-        if isinstance(favorite_value, bytes):
-          favorite_ssid = favorite_value.decode('utf-8', errors='replace').strip('\x00')
-        else:
-          favorite_ssid = str(favorite_value).strip('\x00')
-        if favorite_ssid:
-          # Truncate if too long
-          if len(favorite_ssid) > 20:
-            return favorite_ssid[:17] + "..."
-          return favorite_ssid
-    except Exception:
-      pass
-    return tr("None")
-
-  def _select_preferred_network(self):
-    """Open dialog to select preferred network from saved networks"""
-    if Params is None or len(self._saved_networks) == 0:
-      return
-    
-    # Get current favorite
-    current_favorite = ""
-    try:
-      favorite_value = self._params.get("WifiFavoriteSSID")
-      if favorite_value:
-        if isinstance(favorite_value, bytes):
-          current_favorite = favorite_value.decode('utf-8', errors='replace').strip('\x00')
-        else:
-          current_favorite = str(favorite_value).strip('\x00')
-    except Exception:
-      pass
-    
-    # Build list of network names (add "None" option first)
-    network_options = [tr("None")]
-    network_options.extend([n.ssid for n in self._saved_networks])
-    
-    # Create dialog
-    self._preferred_network_dialog = MultiOptionDialog(
-      tr("Select Preferred Network"),
-      network_options,
-      current_favorite if current_favorite else tr("None")
-    )
-    
-    def handle_selection(result):
-      """Handle selection from dialog"""
-      if result == DialogResult.CONFIRM and self._preferred_network_dialog is not None:
-        selection = self._preferred_network_dialog.selection
-        # Convert "None" back to empty string
-        if selection == tr("None"):
-          selection = ""
-        
-        # Save the selection
-        self._params.put("WifiFavoriteSSID", selection)
-        if selection:
-          cloudlog.info(f"Set preferred network: {selection}")
-        else:
-          cloudlog.info("Cleared preferred network")
-        
-        # Update button value display
-        self._preferred_network_action.set_value(self._get_preferred_network_display())
-      
-      self._preferred_network_dialog = None
-    
-    gui_app.set_modal_overlay(self._preferred_network_dialog, callback=handle_selection)
 
   def _connect_to_hidden_network(self):
     def connect_hidden(result):

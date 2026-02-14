@@ -2,11 +2,14 @@ import pyray as rl
 from collections.abc import Callable
 
 from openpilot.common.params import Params
+from openpilot.common.swaglog import cloudlog
 from openpilot.system.ui.widgets import Widget, DialogResult
-from openpilot.system.ui.widgets.list_view import toggle_item, button_item, text_item
+from openpilot.system.ui.widgets.list_view import toggle_item, button_item, text_item, ButtonAction, ListItem
 from openpilot.system.ui.widgets.scroller_tici import Scroller
+from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr, tr_noop
+from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.widgets.web_server_qr_dialog_tici import WebServerQRDialogTici
 from openpilot.selfdrive.ui.widgets.float_control_item import float_control_item
@@ -18,6 +21,15 @@ class BluePilotLayout(Widget):
   def __init__(self):
     super().__init__()
     self._params = Params()
+    
+    # Create WifiManager instance for preferred network selector
+    self._wifi_manager = WifiManager()
+    self._wifi_manager.set_active(False)  # Don't scan unless needed
+    self._saved_networks: list[Network] = []
+    self._preferred_network_dialog: MultiOptionDialog | None = None
+    
+    # Register callback to update saved networks list
+    self._wifi_manager.add_callbacks(networks_updated=self._on_network_updated)
 
     # Initialize items
     items = self._initialize_items()
@@ -253,6 +265,16 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
 
+    # Preferred WiFi Network selector
+    self._preferred_network_action = ButtonAction(lambda: tr("SELECT"))
+    self._preferred_network_action.set_value(lambda: self._get_preferred_network_display())
+    self._preferred_network_btn = ListItem(
+      lambda: tr("Preferred WiFi Network"),
+      description=lambda: tr("Automatically connect to this network when available"),
+      action_item=self._preferred_network_action,
+      callback=self._select_preferred_network
+    )
+
     return [
       self._enable_web_routes,
       self._show_web_routes_qr,
@@ -275,6 +297,7 @@ class BluePilotLayout(Widget):
       self._vbatt_pause_charging,
       self._disable_BP_lat,
       self._disable_BP_long,
+      self._preferred_network_btn,
     ]
 
   def _get_float_param(self, param: str, default: float) -> float:
@@ -318,6 +341,107 @@ class BluePilotLayout(Widget):
     super().show_event()
     self._scroller.show_event()
     self._update_toggles()
+    # Enable WiFi scanning when BluePilot menu is shown
+    self._wifi_manager.set_active(True)
+
+  def hide_event(self):
+    super().hide_event()
+    # Disable WiFi scanning when BluePilot menu is hidden
+    self._wifi_manager.set_active(False)
+
+  def _on_network_updated(self, networks: list[Network]):
+    """Update saved networks list when WiFi networks are updated"""
+    self._saved_networks = [n for n in networks if n.is_saved]
+    self._preferred_network_action.set_enabled(len(self._saved_networks) > 0)
+    
+    # Check if preferred network is still saved in NetworkManager
+    try:
+      favorite_value = self._params.get("WifiFavoriteSSID")
+      current_favorite = ""
+      if favorite_value:
+        if isinstance(favorite_value, bytes):
+          current_favorite = favorite_value.decode('utf-8', errors='replace').strip('\x00')
+        else:
+          current_favorite = str(favorite_value).strip('\x00')
+      if current_favorite:
+        # Check NetworkManager's saved connections directly
+        saved_connections = self._wifi_manager._get_connections()
+        if current_favorite not in saved_connections:
+          # Network is no longer saved, clear preferred setting
+          self._params.put("WifiFavoriteSSID", "")
+          cloudlog.info(f"Cleared preferred network '{current_favorite}' - network no longer saved in NetworkManager")
+    except Exception as e:
+      cloudlog.debug(f"Error checking preferred network: {e}")
+
+  def _get_preferred_network_display(self) -> str:
+    """Get the display text for preferred network"""
+    try:
+      favorite_value = self._params.get("WifiFavoriteSSID")
+      if favorite_value:
+        if isinstance(favorite_value, bytes):
+          favorite_ssid = favorite_value.decode('utf-8', errors='replace').strip('\x00')
+        else:
+          favorite_ssid = str(favorite_value).strip('\x00')
+        if favorite_ssid:
+          # Truncate if too long
+          if len(favorite_ssid) > 20:
+            return favorite_ssid[:17] + "..."
+          return favorite_ssid
+    except Exception:
+      pass
+    return tr("None")
+
+  def _select_preferred_network(self):
+    """Open dialog to select preferred network from saved networks"""
+    if len(self._saved_networks) == 0:
+      return
+    
+    # Get current favorite
+    current_favorite = ""
+    try:
+      favorite_value = self._params.get("WifiFavoriteSSID")
+      if favorite_value:
+        if isinstance(favorite_value, bytes):
+          current_favorite = favorite_value.decode('utf-8', errors='replace').strip('\x00')
+        else:
+          current_favorite = str(favorite_value).strip('\x00')
+    except Exception:
+      pass
+    
+    # Build list of network names (add "None" option first)
+    network_options = [tr("None")]
+    network_options.extend([n.ssid for n in self._saved_networks])
+    
+    # Create dialog
+    self._preferred_network_dialog = MultiOptionDialog(
+      tr("Select Preferred Network"),
+      network_options,
+      current_favorite if current_favorite else tr("None")
+    )
+    
+    def handle_selection(result):
+      """Handle selection from dialog"""
+      if result == DialogResult.CONFIRM and self._preferred_network_dialog is not None:
+        selection = self._preferred_network_dialog.selection
+        # Convert "None" back to empty string
+        if selection == tr("None"):
+          selection = ""
+        
+        # Save the selection
+        self._params.put("WifiFavoriteSSID", selection)
+        if selection:
+          cloudlog.info(f"Set preferred network: {selection}")
+        else:
+          cloudlog.info("Cleared preferred network")
+        
+        # Update button value display
+        self._preferred_network_action.set_value(self._get_preferred_network_display())
+      
+      self._preferred_network_dialog = None
+    
+    gui_app.set_modal_overlay(self._preferred_network_dialog, callback=handle_selection)
 
   def _render(self, rect):
+    # Process WiFi manager callbacks
+    self._wifi_manager.process_callbacks()
     self._scroller.render(rect)
