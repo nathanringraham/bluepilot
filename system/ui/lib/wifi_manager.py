@@ -672,9 +672,9 @@ class WifiManager:
     initial_check_done = False
     
     while not self._exit:
-      if not self._active:
-        time.sleep(1)
-        continue
+      # Favorite check should run in background regardless of UI state
+      # The _active flag controls scanning frequency, but we still want to check for favorite network
+      # If scanning is paused, we'll just check less frequently but still check
       
       current_time = time.monotonic()
       
@@ -716,59 +716,60 @@ class WifiManager:
           # No favorite set, skip
           continue
         
-        # Check if favorite network is available
-        with self._lock:
-          # Wait for networks to be scanned (at least one network should be available)
-          if len(self._networks) == 0:
-            # Networks not scanned yet, wait a bit longer
-            cloudlog.debug("Favorite check: Waiting for networks to be scanned...")
-            continue
-          
-          favorite_network = None
-          current_connected_ssid = None
-          
-          for network in self._networks:
-            if network.is_connected:
-              current_connected_ssid = network.ssid
-            if network.ssid == favorite_ssid:
-              favorite_network = network
-          
-          # If favorite is already connected, nothing to do
-          if current_connected_ssid == favorite_ssid:
-            continue
-          
-          # If we're connected to something else and favorite is not in scan results yet,
-          # trigger a scan and wait for next check
-          if current_connected_ssid and current_connected_ssid != favorite_ssid and not favorite_network:
-            # Favorite might not be in range yet, or scan hasn't picked it up
-            # Trigger a scan to refresh network list
-            should_scan = True
-          else:
-            should_scan = False
-          
-        # Release lock before scanning (if needed)
-        if should_scan:
-          try:
-            self._request_scan()
-          except Exception:
-            pass
+        # Verify favorite network is saved in NetworkManager
+        saved_connections = self._get_connections()
+        if favorite_ssid not in saved_connections:
+          cloudlog.warning(f"Favorite network '{favorite_ssid}' is not saved in NetworkManager, cannot auto-connect")
           continue
-          
-        # Re-acquire lock for connection logic
+        
+        # Check NetworkManager's active connections directly (more reliable than scan results)
+        # This works even when scanning is paused
+        active_connections = self._get_active_connections()
+        current_connected_ssid = None
+        for conn_path in active_connections:
+          try:
+            conn_addr = DBusAddress(conn_path, bus_name=NM, interface=NM_ACTIVE_CONNECTION_IFACE)
+            conn_type = self._router_main.send_and_get_reply(Properties(conn_addr).get('Type')).body[0][1]
+            if conn_type == '802-11-wireless':
+              specific_obj_path = self._router_main.send_and_get_reply(Properties(conn_addr).get('SpecificObject')).body[0][1]
+              if specific_obj_path != "/":
+                ap_addr = DBusAddress(specific_obj_path, bus_name=NM, interface=NM_ACCESS_POINT_IFACE)
+                ap_ssid_bytes = self._router_main.send_and_get_reply(Properties(ap_addr).get('Ssid')).body[0][1]
+                current_connected_ssid = bytes(ap_ssid_bytes).decode("utf-8", "replace")
+                break
+          except Exception:
+            continue
+        
+        # If favorite is already connected, nothing to do
+        if current_connected_ssid == favorite_ssid:
+          cloudlog.debug(f"Favorite network '{favorite_ssid}' is already connected")
+          continue
+        
+        # Check scan results for favorite network availability
         with self._lock:
-          # Re-check favorite network after potential scan
           favorite_network = None
-          current_connected_ssid = None
+          available_ssids = []
+          
+          # Trigger a scan if networks haven't been updated recently (even if _active is False)
+          if len(self._networks) == 0 or (time.monotonic() - self._last_network_update > 60.0):
+            # Networks not scanned recently, trigger a scan
+            cloudlog.debug("Favorite check: Triggering scan to refresh network list...")
+            try:
+              self._request_scan()
+              # Give scan a moment to complete
+              time.sleep(3)
+              # Update networks from scan results
+              self._update_networks()
+            except Exception:
+              pass
           
           for network in self._networks:
-            if network.is_connected:
-              current_connected_ssid = network.ssid
+            available_ssids.append(network.ssid)
             if network.ssid == favorite_ssid:
               favorite_network = network
           
-          # If favorite is already connected, nothing to do
-          if current_connected_ssid == favorite_ssid:
-            continue
+          # Debug logging
+          cloudlog.debug(f"Favorite check: Looking for '{favorite_ssid}', currently connected to '{current_connected_ssid}', found in scan: {favorite_network is not None}, available networks: {len(available_ssids)}")
           
           # If favorite network is available but not connected, connect to it
           if favorite_network and not favorite_network.is_connected:
@@ -781,17 +782,27 @@ class WifiManager:
               # Wait a bit for disconnection to complete
               time.sleep(2)
             
+            # Check if network is saved in NetworkManager (more reliable than scan result flag)
+            saved_connections = self._get_connections()
+            is_saved_in_nm = favorite_ssid in saved_connections
+            
             # Connect to favorite network
-            if favorite_network.is_saved:
-              # Network is saved, just activate it
+            if is_saved_in_nm:
+              # Network is saved in NetworkManager, activate it
+              cloudlog.info(f"Favorite network '{favorite_ssid}' is saved, activating connection...")
               self.activate_connection(favorite_ssid, block=False)
             elif favorite_network.security_type == SecurityType.OPEN:
               # Open network, connect without password
+              cloudlog.info(f"Favorite network '{favorite_ssid}' is open, connecting...")
               self.connect_to_network(favorite_ssid, "")
             else:
               # Secured network - we can't auto-connect without password
               # User will need to connect manually
-              cloudlog.info(f"Favorite network '{favorite_ssid}' requires password, skipping auto-connect")
+              cloudlog.info(f"Favorite network '{favorite_ssid}' requires password and is not saved, skipping auto-connect")
+          elif current_connected_ssid and current_connected_ssid != favorite_ssid:
+            # Connected to something else, but favorite not in scan results
+            # Log for debugging
+            cloudlog.debug(f"Favorite network '{favorite_ssid}' not in scan results, currently connected to '{current_connected_ssid}'")
       
       except Exception as e:
         cloudlog.exception(f"Error checking favorite network: {e}")
