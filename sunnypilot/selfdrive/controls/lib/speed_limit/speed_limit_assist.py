@@ -284,7 +284,15 @@ class SpeedLimitAssist:
 
         # PRE_ACTIVE
         elif self.state == SpeedLimitAssistState.preActive:
-          if self.target_set_speed_confirmed:
+          # For PCM cars using ICBM, use button detection logic instead of just checking target_set_speed_confirmed
+          # This allows SLA to detect ICBM's button presses and transition to active state
+          if self.CP_SP.intelligentCruiseButtonManagementAvailable:
+            if self._update_non_pcm_long_confirmed_state():
+              self._update_confirmed_state()
+            elif self.pre_active_timer <= 0:
+              # Timeout - session ended
+              self.state = SpeedLimitAssistState.inactive
+          elif self.target_set_speed_confirmed:
             self._update_confirmed_state()
           elif self.pre_active_timer <= 0:
             # Timeout - session ended
