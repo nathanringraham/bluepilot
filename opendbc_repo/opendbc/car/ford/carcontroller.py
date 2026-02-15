@@ -415,29 +415,6 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
       self, CC_SP, CS, self.packer, self.CAN, self.frame, self.last_button_frame
     )
     can_sends.extend(icbm_can_sends)
-    
-    # Store ICBM's sendButton state in CarState class instance for carstate_ext to use in next frame
-    # This allows carstate_ext to filter ICBM-sent button presses
-    # CS is self.CS.out (a struct), but CS also has buttons_stock_values which is set in carstate.update()
-    # So CS is actually a reference that allows us to access the class instance
-    # We'll store it in CS's parent class instance via a workaround: store it in CS itself as an attribute
-    # (Python allows adding attributes to objects, even structs)
-    # Actually, better: store it in the CarState class instance which we can access via CS's __class__
-    # But CS is a struct, not the class instance...
-    # Solution: Store it in CarStateSP which carstate_ext can read
-    # But carcontroller doesn't have access to CarStateSP...
-    # Final solution: Store it in CarState class instance, accessed via a reference passed through CS
-    # Since CS has buttons_stock_values which is set in carstate.update(), CS must have a way to access the class instance
-    # Actually, CS is just self.CS.out, so we can't access self.CS from CS...
-    # Let's use a different approach: Store it in CarStateSP in carstate.update() by reading from class instance
-    # But we need carcontroller to update the class instance...
-    # Actually, the simplest: Pass CS (which is self.CS.out) and also pass self.CS (the class instance) separately
-    # But that would require changing the interface...
-    # For now, let's store it in CS as an attribute (Python allows this even for structs)
-    # This is a workaround but it should work
-    if not hasattr(CS, 'icbm_send_button_prev'):
-      CS.icbm_send_button_prev = structs.IntelligentCruiseButtonManagement.SendButtonState.none
-    CS.icbm_send_button_prev = CC_SP.intelligentCruiseButtonManagement.sendButton
 
     ### lateral control ###
 

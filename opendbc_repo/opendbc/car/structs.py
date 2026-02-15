@@ -170,10 +170,6 @@ class CarControlSP:
 @auto_dataclass
 class CarStateSP:
   speedLimit: float = auto_field()
-  # Ford-specific: Track ICBM's sendButton state from previous frame to filter ICBM-sent button presses
-  icbm_send_button_prev: 'IntelligentCruiseButtonManagement.SendButtonState' = field(
-    default_factory=lambda: IntelligentCruiseButtonManagement.SendButtonState.none
-  )
 
 @auto_dataclass
 class ControllerStateBP:
