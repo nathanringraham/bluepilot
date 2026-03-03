@@ -7,18 +7,20 @@ from openpilot.selfdrive.ui.sunnypilot.onroad.chevron_metrics import ChevronMetr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 
-# BluePilot: Deadband thresholds for close-proximity mode (in meters)
-CLOSE_MODE_THRESHOLD_M = 50.0 * 0.3048   # 50 feet = 15.24 meters
-NORMAL_MODE_THRESHOLD_M = 60.0 * 0.3048  # 60 feet = 18.29 meters
+# BluePilot: Inversion thresholds for radar overlay (close-proximity mode)
+# When lead is closer than INVERT_UNDER_M, overlay moves to top with chevron flipped
+# Hysteresis: revert to bottom only when lead is farther than NORMAL_OVER_M
+INVERT_UNDER_M = 100.0 * 0.3048   # 100 feet = 30.48 m - flip to top
+NORMAL_OVER_M = 125.0 * 0.3048    # 125 feet = 38.10 m - revert to bottom
 
-# Deadband thresholds when powerflow gauge is active (wider to avoid overlap)
-POWERFLOW_UPPER_THRESHOLD_M = 150.0 * 0.3048  # 150 feet = 45.72 meters
-POWERFLOW_LOWER_THRESHOLD_M = 100.0 * 0.3048  # 100 feet = 30.48 meters
+# BluePilot: Vertical offset for inverted layout (keeps overlay on screen, below HUD/speed)
+INVERTED_TOP_OFFSET = 350
 
 # BluePilot: Border colors for radar vs vision leads
+LEAD_RADAR_GLOW = rl.Color(0, 134, 233, 255)
 RADAR_BORDER_COLOR_BASE = rl.Color(0, 100, 200, 255)   # Blue for radar
+LEAD_VISION_GLOW = rl.Color(218, 202, 37, 255)
 VISION_BORDER_COLOR_BASE = rl.Color(201, 34, 49, 255)   # Red for vision
-
 
 class ChevronMetricsBP(ChevronMetrics):
   """BluePilot ChevronMetrics with horizontal boxed layout and radar/vision colored borders."""
@@ -26,7 +28,7 @@ class ChevronMetricsBP(ChevronMetrics):
   def __init__(self):
     super().__init__()
     self._bp_params = Params()
-    self._close_mode: bool = False
+    self._inverted_mode: bool = False
 
     # Set by ModelRendererBP before calling draw_lead_status
     self.ford_overlay_enabled: bool = False
@@ -50,51 +52,14 @@ class ChevronMetricsBP(ChevronMetrics):
     if not lead_vehicle.chevron or len(lead_vehicle.chevron) < 3:
       return
 
-    # BluePilot: Deadband logic for close-proximity positioning
-    powerflow_enabled = self._bp_params.get_bool("FordPrefHybridPowerFlow")
-
-    if powerflow_enabled:
-      if d_rel < POWERFLOW_UPPER_THRESHOLD_M:
-        self._close_mode = True
-      elif d_rel > POWERFLOW_LOWER_THRESHOLD_M:
-        self._close_mode = False
-    else:
-      if d_rel < CLOSE_MODE_THRESHOLD_M:
-        self._close_mode = True
-      elif d_rel > NORMAL_MODE_THRESHOLD_M:
-        self._close_mode = False
-
-    # Extract chevron geometry
-    chevron_point_0 = lead_vehicle.chevron[0]
-    chevron_point_1 = lead_vehicle.chevron[1]
-    chevron_point_2 = lead_vehicle.chevron[2]
-
-    chevron_x = chevron_point_1[0]
-
-    all_y_coords = [chevron_point_0[1], chevron_point_1[1], chevron_point_2[1]]
-    chevron_top_y = min(all_y_coords)
-    chevron_bottom_y = max(all_y_coords)
-
     sz = np.clip((25 * 30) / (d_rel / 3 + 30), 15.0, 30.0) * 2.35 * self.overlay_scale
 
     text_lines = self._build_text_lines_bp(d_rel, v_rel, v_ego)
     if not text_lines:
       return
 
-    # Position text: below chevron normally, above chevron when in close mode
-    spacing_offset = max(70 * self.overlay_scale, sz * 0.6)
-
-    if self._close_mode:
-      if powerflow_enabled:
-        chevron_text_y = chevron_top_y - (spacing_offset * 0.85)
-      else:
-        upward_offset = sz * 3.0
-        chevron_text_y = chevron_top_y - spacing_offset - upward_offset
-    else:
-      chevron_text_y = chevron_bottom_y + spacing_offset
-
     is_radar = self.lead_is_radar[lead_index] if lead_index < len(self.lead_is_radar) else False
-    self._render_text_lines_bp(text_lines, chevron_x, chevron_text_y, sz, rect, is_radar)
+    self._render_text_lines_bp(text_lines, lead_vehicle, sz, rect, is_radar, self._inverted_mode)
 
   def _build_text_lines_bp(self, d_rel: float, v_rel: float, v_ego: float) -> list[str]:
     """Build text lines - Ford overlay forces all 3, otherwise respects setting."""
@@ -124,9 +89,12 @@ class ChevronMetricsBP(ChevronMetrics):
     else:
       return ChevronMetrics._build_text_lines(d_rel, v_rel, v_ego)
 
-  def _render_text_lines_bp(self, text_lines: list[str], chevron_x: float, chevron_y: float,
-                            sz: float, rect: rl.Rectangle, is_radar: bool = False):
-    """Render text lines with horizontal boxed layout when Ford overlay is active."""
+  def _render_text_lines_bp(self, text_lines: list[str], lead_vehicle,
+                            sz: float, rect: rl.Rectangle, is_radar: bool, inverted: bool = False):
+    """Render text lines with horizontal boxed layout when Ford overlay is active.
+    When inverted (close proximity), overlay moves to top and chevron flips upside down."""
+    CHEVRON_H = 40
+
     margin = 20
     alpha = int(255 * self._lead_status_alpha)
     text_color = rl.Color(255, 255, 255, alpha)
@@ -140,6 +108,9 @@ class ChevronMetricsBP(ChevronMetrics):
       box_spacing = int(15 * scale)
       box_color = rl.Color(40, 40, 40, int(220 * self._lead_status_alpha))
 
+      chevron_x = lead_vehicle.chevron[1][0]
+      chevron_y = lead_vehicle.chevron[1][1]
+
       # Measure all text sizes
       text_sizes = []
       total_width = 0
@@ -149,18 +120,16 @@ class ChevronMetricsBP(ChevronMetrics):
         total_width += text_size.x + (padding * 2)
       total_width += box_spacing * (len(text_lines) - 1)
 
-      # Center boxes horizontally on chevron
-      start_x = chevron_x - total_width / 2
-      current_x = start_x
-
       text_height = text_sizes[0].y if text_sizes else font_size
       box_height = text_height + (padding * 2)
 
-      # Position based on close mode
-      if self._close_mode:
-        y = int(chevron_y - box_height)
+      # Inverted: center on screen; normal: center on chevron
+      if inverted:
+        center_x = rect.width / 2
       else:
-        y = int(chevron_y)
+        center_x = chevron_x
+      start_x = center_x - total_width / 2
+      current_x = start_x
 
       # Clamp to screen bounds
       if start_x < margin:
@@ -170,21 +139,31 @@ class ChevronMetricsBP(ChevronMetrics):
         start_x = rect.width - margin - total_width
         current_x = start_x
 
+      # Inverted: boxes below HUD/speed area (INVERTED_TOP_OFFSET from top); normal: boxes below chevron
+      if inverted:
+        y = INVERTED_TOP_OFFSET
+      else:
+        y = chevron_y + CHEVRON_H
+
       # Border color: blue for radar, red for vision
       if is_radar:
+        glow_color = LEAD_RADAR_GLOW
         border_color = rl.Color(RADAR_BORDER_COLOR_BASE.r, RADAR_BORDER_COLOR_BASE.g,
                                 RADAR_BORDER_COLOR_BASE.b, alpha)
       else:
+        glow_color = LEAD_VISION_GLOW
         border_color = rl.Color(VISION_BORDER_COLOR_BASE.r, VISION_BORDER_COLOR_BASE.g,
                                 VISION_BORDER_COLOR_BASE.b, alpha)
 
       border_thickness = max(2, int(6 * scale))
 
+      box_rects = []
       for line, text_size in zip(text_lines, text_sizes):
         box_width = text_size.x + (padding * 2)
 
         # Dark grey box
         box_rect = rl.Rectangle(int(current_x), int(y), box_width, box_height)
+        box_rects.append(box_rect)
         rl.draw_rectangle_rounded(box_rect, 0.2, 10, box_color)
 
         # Colored border (drawn on same rect so there's no gap)
@@ -198,6 +177,40 @@ class ChevronMetricsBP(ChevronMetrics):
         rl.draw_text_ex(self._font, line, rl.Vector2(text_x, text_y_pos), font_size, 0, text_color)
 
         current_x += box_width + box_spacing
+
+      box = None
+      if len(box_rects) == 1:
+        box = box_rects[0]
+      elif len(box_rects) == 3:
+        box = box_rects[1]
+
+      if box != None:
+        center_x = box.x + box.width / 2
+        if inverted:
+          # Chevron flipped: wide base at top (touching overlay bottom), apex pointing down
+          base_y = y + box_height
+          apex_y = base_y + CHEVRON_H
+          chevron = [rl.Vector2(center_x, apex_y),
+                     rl.Vector2(box.x, base_y),
+                     rl.Vector2(box.x + box.width, base_y)]
+        else:
+          # Normal: apex above (point toward lead), base below (touching overlay top)
+          chevron = [rl.Vector2(center_x, y - CHEVRON_H),
+                     rl.Vector2(box.x, y),
+                     rl.Vector2(box.x + box.width, y)]
+      else:
+        chevron = lead_vehicle.glow
+
+      # Draw modified chevron
+      rl.draw_triangle_fan(chevron, len(chevron), border_color)
+      rl.draw_line_ex(chevron[0], chevron[1], border_thickness, glow_color)
+      rl.draw_line_ex(chevron[1], chevron[2], border_thickness, glow_color)
+      rl.draw_line_ex(chevron[2], chevron[0], border_thickness, glow_color)
+      r = border_thickness / 2
+      rl.draw_circle_v(chevron[0], r, glow_color)
+      rl.draw_circle_v(chevron[1], r, glow_color)
+      rl.draw_circle_v(chevron[2], r, glow_color)
+
     else:
       # Fall back to base vertical stack rendering
       self._render_text_lines(text_lines, chevron_x, chevron_y, sz, rect)
@@ -215,6 +228,17 @@ class ChevronMetricsBP(ChevronMetrics):
       return
 
     v_ego = sm['carState'].vEgo
+
+    # BluePilot: Hysteresis for inversion - use closest lead's d_rel
+    if has_lead_one or has_lead_two:
+      d_rel_closest = min(
+        lead_one.dRel if has_lead_one else float('inf'),
+        lead_two.dRel if has_lead_two else float('inf'),
+      )
+      if d_rel_closest < INVERT_UNDER_M:
+        self._inverted_mode = True
+      elif d_rel_closest > NORMAL_OVER_M:
+        self._inverted_mode = False
 
     if has_lead_one and lead_vehicles[0].chevron:
       self._draw_lead(lead_one, lead_vehicles[0], v_ego, rect, lead_index=0)

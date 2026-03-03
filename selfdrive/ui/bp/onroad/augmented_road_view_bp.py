@@ -76,7 +76,7 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
     pass
 
   def _render(self, rect):
-    """Override render to add blindspot, gauges, confidence ball on left, and speed_right passing."""
+    """Override render to add blindspot, gauges, confidence ball on left."""
     start_draw = time.monotonic()
     bp_ui_log.tick()
     if not ui_state.started:
@@ -190,7 +190,6 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
       self._torque_bar.render(torque_rect, gauge_height_offset=gauge_height_offset)
 
     # Alerts last so they are never covered by gauges or other overlays
-    self.alert_renderer.set_speed_right(self._hud_renderer.get_speed_right())
     self.alert_renderer.render(ui_rect)
 
     bp_ui_log.scissor("AugRoadView", "end")

@@ -3,6 +3,7 @@ import numpy as np
 import pyray as rl
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
+from openpilot.common.params_pyx import UnknownKeyName
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
@@ -25,8 +26,11 @@ class BlindspotRendererMixin:
   def _draw_blindspot_screen_edges(self, rect: rl.Rectangle, blind_spot_width: int = 250):
     """Draw blindspot screen edge indicators - red gradient edge with pulsing animation."""
     # BluePilot-only toggle: ShowBlindspotOverlay controls this overlay (decoupled from SunnyPilot BlindSpot).
-    if not self._blindspot_params.get_bool("ShowBlindspotOverlay"):
-      return
+    try:
+      if not self._blindspot_params.get_bool("ShowBlindspotOverlay"):
+        return
+    except UnknownKeyName:
+      return  # Param unknown in dev environment
 
     bp_ui_log.state("Blindspot", "param_enabled", True)
 

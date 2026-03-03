@@ -1,6 +1,7 @@
 import pyray as rl
 
 from openpilot.common.params import Params
+from openpilot.common.params_pyx import UnknownKeyName
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.ui.widgets import Widget, DialogResult
 from openpilot.system.ui.widgets.list_view import toggle_item, multiple_button_item, ButtonAction, ListItem
@@ -15,6 +16,23 @@ from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_i
 
 class BluePilotLayout(Widget):
   """BluePilot settings layout for TICI UI."""
+
+  @staticmethod
+  def _safe_get_bool(params: Params, key: str, default: bool = False) -> bool:
+    """Get bool param; return default if key is unknown (e.g. dev environment with reduced params)."""
+    try:
+      return params.get_bool(key)
+    except UnknownKeyName:
+      return default
+
+  @staticmethod
+  def _safe_get(params: Params, key: str, default=None):
+    """Get param; return default if key is unknown (e.g. dev environment with reduced params)."""
+    try:
+      val = params.get(key, return_default=True)
+      return val if val not in (None, b"", "") else default
+    except UnknownKeyName:
+      return default
 
   def __init__(self):
     super().__init__()
@@ -63,7 +81,7 @@ class BluePilotLayout(Widget):
     self._show_hands_free_ui = toggle_item(
       lambda: tr("Show Hands-Free UI"),
       lambda: tr("Display hands-free UI elements."),
-      initial_state=self._params.get_bool("send_hands_free_cluster_msg"),
+      initial_state=self._safe_get_bool(self._params, "send_hands_free_cluster_msg"),
       callback=lambda state: self._toggle_callback(state, "send_hands_free_cluster_msg"),
       icon="monitoring.png"
     )
@@ -72,7 +90,7 @@ class BluePilotLayout(Widget):
     self._show_blindspot = toggle_item(
       lambda: tr("Show Blindspot Overlay"),
       lambda: tr("Display red overlay when vehicle is detected in blindspot."),
-      initial_state=self._params.get_bool("ShowBlindspotOverlay"),
+      initial_state=self._safe_get_bool(self._params, "ShowBlindspotOverlay"),
       callback=lambda state: self._toggle_callback(state, "ShowBlindspotOverlay"),
       icon="warning.png"
     )
@@ -81,7 +99,7 @@ class BluePilotLayout(Widget):
     self._show_brake_status = toggle_item(
       lambda: tr("Show Brake Status"),
       lambda: tr("Display speed setpoint in red when vehicle is braking."),
-      initial_state=self._params.get_bool("ShowBrakeStatus"),
+      initial_state=self._safe_get_bool(self._params, "ShowBrakeStatus"),
       callback=lambda state: self._toggle_callback(state, "ShowBrakeStatus"),
       icon="warning.png"
     )
@@ -90,7 +108,7 @@ class BluePilotLayout(Widget):
     self._hide_onroad_border = toggle_item(
       lambda: tr("Hide Onroad Border"),
       lambda: tr("Hide the colored status border around the driving view."),
-      initial_state=self._params.get_bool("BPHideOnroadBorder"),
+      initial_state=self._safe_get_bool(self._params, "BPHideOnroadBorder"),
       callback=lambda state: self._toggle_callback(state, "BPHideOnroadBorder"),
       icon="warning.png"
     )
@@ -99,7 +117,7 @@ class BluePilotLayout(Widget):
     self._show_confidence_ball = toggle_item(
       lambda: tr("Show Confidence Ball"),
       lambda: tr("Display the confidence ball on the left side of the driving view."),
-      initial_state=self._params.get_bool("BPShowConfidenceBall"),
+      initial_state=self._safe_get_bool(self._params, "BPShowConfidenceBall"),
       callback=lambda state: self._toggle_callback(state, "BPShowConfidenceBall"),
       icon="warning.png"
     )
@@ -108,7 +126,7 @@ class BluePilotLayout(Widget):
     self._animate_steering_wheel = toggle_item(
       lambda: tr("Animate Steering Wheel"),
       lambda: tr("Rotate the steering wheel icon to match the current steering angle."),
-      initial_state=self._params.get_bool("BPAnimateSteeringWheel"),
+      initial_state=self._safe_get_bool(self._params, "BPAnimateSteeringWheel"),
       callback=lambda state: self._toggle_callback(state, "BPAnimateSteeringWheel"),
       icon="chffr_wheel.png"
     )
@@ -117,19 +135,22 @@ class BluePilotLayout(Widget):
     self._show_ford_radar_overlay = toggle_item(
       lambda: tr("Show Radar Lead Overlay (Ford ACC)"),
       lambda: tr("Display chevron with lead vehicle info when using Ford stock ACC."),
-      initial_state=self._params.get_bool("FordPrefShowRadarLeadOverlay"),
+      initial_state=self._safe_get_bool(self._params, "FordPrefShowRadarLeadOverlay"),
       callback=lambda state: self._toggle_callback(state, "FordPrefShowRadarLeadOverlay"),
       icon="speed_limit.png"
     )
 
     # Ford radar overlay size selector (inline buttons like Driving Personality)
     try:
-      overlay_size_idx = int(self._params.get("FordPrefRadarOverlaySize", return_default=True))
+      overlay_size_idx = int(self._safe_get(self._params, "FordPrefRadarOverlaySize") or 1)
     except (TypeError, ValueError):
       overlay_size_idx = 1
     # Ensure default is persisted so consumers read the correct value on first load
-    if self._params.get("FordPrefRadarOverlaySize") is None:
-      self._params.put("FordPrefRadarOverlaySize", overlay_size_idx)
+    try:
+      if self._safe_get(self._params, "FordPrefRadarOverlaySize") is None:
+        self._params.put("FordPrefRadarOverlaySize", str(overlay_size_idx))
+    except UnknownKeyName:
+      pass
     self._radar_overlay_size_btn = multiple_button_item(
       lambda: tr("Radar Overlay Size"),
       lambda: tr("Set the size of the radar lead overlay chevron and info boxes."),
@@ -144,7 +165,7 @@ class BluePilotLayout(Widget):
     self._show_hybrid_battery_status = toggle_item(
       lambda: tr("Show Hybrid/EV Battery Status"),
       lambda: tr("Display hybrid battery gauge with SOC, voltage, and amps."),
-      initial_state=self._params.get_bool("FordPrefHybridBatteryStatus"),
+      initial_state=self._safe_get_bool(self._params, "FordPrefHybridBatteryStatus"),
       callback=lambda state: self._toggle_callback(state, "FordPrefHybridBatteryStatus"),
       icon="warning.png"
     )
@@ -153,21 +174,24 @@ class BluePilotLayout(Widget):
     self._show_hybrid_power_flow = toggle_item(
       lambda: tr("Show Hybrid/EV Power Flow"),
       lambda: tr("Display power flow gauge showing throttle demand and regenerative braking."),
-      initial_state=self._params.get_bool("FordPrefHybridPowerFlow"),
+      initial_state=self._safe_get_bool(self._params, "FordPrefHybridPowerFlow"),
       callback=lambda state: self._toggle_callback(state, "FordPrefHybridPowerFlow"),
       icon="warning.png"
     )
 
     # Hybrid drive gauge size selector (inline buttons: Small=1, Large=2)
     try:
-      gauge_size_idx = int(self._params.get("FordPrefHybridDriveGaugeSize", return_default=True))
+      gauge_size_idx = int(self._safe_get(self._params, "FordPrefHybridDriveGaugeSize") or 1)
     except (TypeError, ValueError):
       gauge_size_idx = 1
     # Clamp old 3-tier values to new 2-tier range
     gauge_size_idx = min(gauge_size_idx, 2)
     # Ensure default is persisted so consumers read the correct value on first load
-    if self._params.get("FordPrefHybridDriveGaugeSize") is None:
-      self._params.put("FordPrefHybridDriveGaugeSize", gauge_size_idx)
+    try:
+      if self._safe_get(self._params, "FordPrefHybridDriveGaugeSize") is None:
+        self._params.put("FordPrefHybridDriveGaugeSize", str(gauge_size_idx))
+    except UnknownKeyName:
+      pass
     # Map 1/2 to button index 0/1
     self._hybrid_gauge_size_btn = multiple_button_item(
       lambda: tr("Hybrid/EV Gauge Size"),
@@ -180,12 +204,15 @@ class BluePilotLayout(Widget):
     )
 
     # Hybrid gauge style: Flat (horizontal bar + container) vs Arched (arch above torque bar)
-    gauge_style_raw = self._params.get("FordPrefHybridGaugeStyle") or b"flat"
+    gauge_style_raw = self._safe_get(self._params, "FordPrefHybridGaugeStyle") or b"flat"
     gauge_style_str = (gauge_style_raw.decode("utf-8", errors="replace").strip("\x00").lower()
                        if isinstance(gauge_style_raw, bytes) else str(gauge_style_raw).strip().lower())
     gauge_style_idx = 1 if gauge_style_str == "arched" else 0
-    if gauge_style_str not in ("flat", "arched"):
-      self._params.put("FordPrefHybridGaugeStyle", "flat")
+    try:
+      if gauge_style_str not in ("flat", "arched"):
+        self._params.put("FordPrefHybridGaugeStyle", "flat")
+    except UnknownKeyName:
+      pass
     self._hybrid_gauge_style_btn = multiple_button_item(
       lambda: tr("Hybrid Gauge Style"),
       lambda: tr("Flat: horizontal bar in shared container. Arched: arch above torque bar (older style)."),
@@ -200,7 +227,7 @@ class BluePilotLayout(Widget):
     self._enable_human_turn_detection = toggle_item(
       lambda: tr("Enable Human Turn Detection"),
       lambda: tr("Enable detection of human-initiated turns."),
-      initial_state=self._params.get_bool("enable_human_turn_detection"),
+      initial_state=self._safe_get_bool(self._params, "enable_human_turn_detection"),
       callback=lambda state: self._toggle_callback(state, "enable_human_turn_detection"),
       icon="warning.png"
     )
@@ -220,7 +247,7 @@ class BluePilotLayout(Widget):
     self._enable_lane_positioning = toggle_item(
       lambda: tr("Enable Lane Positioning"),
       lambda: tr("Enable custom lane positioning controls."),
-      initial_state=self._params.get_bool("enable_lane_positioning"),
+      initial_state=self._safe_get_bool(self._params, "enable_lane_positioning"),
       callback=lambda state: self._toggle_callback(state, "enable_lane_positioning"),
       icon="chffr_wheel.png"
     )
@@ -233,7 +260,7 @@ class BluePilotLayout(Widget):
       min_value=-0.5,
       max_value=0.5,
       step=0.05,
-      enabled=lambda: self._params.get_bool("enable_lane_positioning"),
+      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning"),
       icon="chffr_wheel.png"
     )
 
@@ -241,9 +268,9 @@ class BluePilotLayout(Widget):
     self._enable_lane_full_mode = toggle_item(
       lambda: tr("Enable Lanefull Mode"),
       lambda: tr("Enable lanefull mode for lane positioning."),
-      initial_state=self._params.get_bool("enable_lane_full_mode"),
+      initial_state=self._safe_get_bool(self._params, "enable_lane_full_mode"),
       callback=lambda state: self._toggle_callback(state, "enable_lane_full_mode"),
-      enabled=lambda: self._params.get_bool("enable_lane_positioning"),
+      enabled=lambda: self._safe_get_bool(self._params, "enable_lane_positioning"),
       icon="chffr_wheel.png"
     )
 
@@ -251,7 +278,7 @@ class BluePilotLayout(Widget):
     self._custom_profile = toggle_item(
       lambda: tr("Use Custom Tuning Profile"),
       lambda: tr("Enable custom tuning profile settings."),
-      initial_state=self._params.get_bool("custom_profile"),
+      initial_state=self._safe_get_bool(self._params, "custom_profile"),
       callback=lambda state: self._toggle_callback(state, "custom_profile"),
       icon="chffr_wheel.png"
     )
@@ -264,7 +291,7 @@ class BluePilotLayout(Widget):
       min_value=0.0,
       max_value=1.0,
       step=0.05,
-      enabled=lambda: self._params.get_bool("custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
       icon="chffr_wheel.png"
     )
 
@@ -276,7 +303,7 @@ class BluePilotLayout(Widget):
       min_value=0.0,
       max_value=1.0,
       step=0.05,
-      enabled=lambda: self._params.get_bool("custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
       icon="chffr_wheel.png"
     )
 
@@ -288,7 +315,7 @@ class BluePilotLayout(Widget):
       min_value=0.0,
       max_value=5.0,
       step=0.1,
-      enabled=lambda: self._params.get_bool("custom_profile"),
+      enabled=lambda: self._safe_get_bool(self._params, "custom_profile"),
       icon="chffr_wheel.png"
     )
 
@@ -308,7 +335,7 @@ class BluePilotLayout(Widget):
     self._ui_debug_log = toggle_item(
       lambda: tr("UI Debug Logging"),
       lambda: tr("Log UI state transitions for diagnosing rendering issues on device."),
-      initial_state=self._params.get_bool("BPUIDebugLog"),
+      initial_state=self._safe_get_bool(self._params, "BPUIDebugLog"),
       callback=lambda state: self._toggle_callback(state, "BPUIDebugLog"),
       icon="warning.png"
     )
@@ -317,7 +344,7 @@ class BluePilotLayout(Widget):
     self._disable_BP_lat = toggle_item(
       lambda: tr("Disable BP Lateral Control"),
       lambda: tr("Disable BluePilot lateral control."),
-      initial_state=self._params.get_bool("disable_BP_lat_UI"),
+      initial_state=self._safe_get_bool(self._params, "disable_BP_lat_UI"),
       callback=lambda state: self._toggle_callback(state, "disable_BP_lat_UI"),
       icon="chffr_wheel.png"
     )
@@ -326,7 +353,7 @@ class BluePilotLayout(Widget):
     self._disable_BP_long = toggle_item(
       lambda: tr("Bypass BP Longitudinal Control"),
       lambda: tr("Use stock longitudinal logic instead of BluePilot TTC/coasting tuning."),
-      initial_state=self._params.get_bool("disable_BP_long_UI"),
+      initial_state=self._safe_get_bool(self._params, "disable_BP_long_UI"),
       callback=lambda state: self._toggle_callback(state, "disable_BP_long_UI"),
       icon="chffr_wheel.png"
     )
@@ -335,7 +362,7 @@ class BluePilotLayout(Widget):
     self._disable_dowhill_comp = toggle_item(
       lambda: tr("Disable Downhill Compensation"),
       lambda: tr("Disable pitch-based brake/gas compensation when going downhill."),
-      initial_state=self._params.get_bool("disable_downhill_comp_UI"),
+      initial_state=self._safe_get_bool(self._params, "disable_downhill_comp_UI"),
       callback=lambda state: self._toggle_callback(state, "disable_downhill_comp_UI"),
       icon="chffr_wheel.png"
     )
@@ -389,7 +416,10 @@ class BluePilotLayout(Widget):
 
   def _toggle_callback(self, state: bool, param: str):
     """Handle toggle state changes."""
-    self._params.put_bool(param, state)
+    try:
+      self._params.put_bool(param, state)
+    except UnknownKeyName:
+      pass  # Param not available in dev environment
     self._update_toggles()
 
   def _update_toggles(self):
@@ -398,36 +428,38 @@ class BluePilotLayout(Widget):
 
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:
-      item.action_item.set_state(ui_state.params.get_bool(key))
+      item.action_item.set_state(self._safe_get_bool(ui_state.params, key))
 
     # Update button enabled states
-    self._radar_overlay_size_btn.action_item.set_enabled(ui_state.params.get_bool("FordPrefShowRadarLeadOverlay"))
+    self._radar_overlay_size_btn.action_item.set_enabled(self._safe_get_bool(ui_state.params, "FordPrefShowRadarLeadOverlay"))
     try:
-      overlay_idx = int(ui_state.params.get("FordPrefRadarOverlaySize", return_default=True))
+      overlay_idx = int(self._safe_get(ui_state.params, "FordPrefRadarOverlaySize") or 1)
     except (TypeError, ValueError):
       overlay_idx = 1
     self._radar_overlay_size_btn.action_item.set_selected_button(overlay_idx)
     # Hybrid gauge size: enable if either battery or power flow is enabled
-    gauge_either_on = (ui_state.params.get_bool("FordPrefHybridBatteryStatus")
-                       or ui_state.params.get_bool("FordPrefHybridPowerFlow"))
+    gauge_either_on = (self._safe_get_bool(ui_state.params, "FordPrefHybridBatteryStatus")
+                       or self._safe_get_bool(ui_state.params, "FordPrefHybridPowerFlow"))
     self._hybrid_gauge_size_btn.action_item.set_enabled(gauge_either_on)
     try:
-      gauge_size = int(ui_state.params.get("FordPrefHybridDriveGaugeSize", return_default=True))
+      gauge_size = int(self._safe_get(ui_state.params, "FordPrefHybridDriveGaugeSize") or 1)
     except (TypeError, ValueError):
       gauge_size = 1
     gauge_size = min(gauge_size, 2)  # Clamp old 3-tier values
     self._hybrid_gauge_size_btn.action_item.set_selected_button(gauge_size - 1)
     self._hybrid_gauge_style_btn.action_item.set_enabled(gauge_either_on)
-    raw_style = ui_state.params.get("FordPrefHybridGaugeStyle") or b"flat"
+    raw_style = self._safe_get(ui_state.params, "FordPrefHybridGaugeStyle") or b"flat"
     style_str = (raw_style.decode("utf-8", errors="replace").strip("\x00").lower()
                  if isinstance(raw_style, bytes) else str(raw_style).strip().lower())
     style_idx = 1 if style_str == "arched" else 0
     self._hybrid_gauge_style_btn.action_item.set_selected_button(style_idx)
-    self._custom_path_offset.action_item.set_enabled(ui_state.params.get_bool("enable_lane_positioning"))
-    self._enable_lane_full_mode.action_item.set_enabled(ui_state.params.get_bool("enable_lane_positioning"))
-    self._pc_blend_ratio_high_C.action_item.set_enabled(ui_state.params.get_bool("custom_profile"))
-    self._pc_blend_ratio_low_C.action_item.set_enabled(ui_state.params.get_bool("custom_profile"))
-    self._lc_pid_gain.action_item.set_enabled(ui_state.params.get_bool("custom_profile"))
+    lane_pos = self._safe_get_bool(ui_state.params, "enable_lane_positioning")
+    custom_prof = self._safe_get_bool(ui_state.params, "custom_profile")
+    self._custom_path_offset.action_item.set_enabled(lane_pos)
+    self._enable_lane_full_mode.action_item.set_enabled(lane_pos)
+    self._pc_blend_ratio_high_C.action_item.set_enabled(custom_prof)
+    self._pc_blend_ratio_low_C.action_item.set_enabled(custom_prof)
+    self._lc_pid_gain.action_item.set_enabled(lane_pos and custom_prof)
 
   def show_event(self):
     super().show_event()
