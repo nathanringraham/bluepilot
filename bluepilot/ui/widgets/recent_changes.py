@@ -125,7 +125,7 @@ class RecentChangesDialog(Widget):
   def _on_close(self):
     self._result = DialogResult.CONFIRM
     if self._dismiss_callback:
-      self._dismiss_callback()
+      self._dismiss_callback(self._result)
     gui_app.pop_widget()
 
   def show_event(self):

@@ -38,9 +38,13 @@ class BigParamFloatControl(BigButtonBP):
     else:
       message = "enter a numberic value..."
 
+    def _wrapped_callback(val):
+      self._callback(val)
+      gui_app.pop_widget()
+
     dlg = BigInputDialogBP(message, str(self.get_param()),
-                         confirm_callback=self._callback, show_special_keys=True, minimum_length=0)
-    gui_app.set_modal_overlay(dlg)
+                         confirm_callback=_wrapped_callback, show_special_keys=True, minimum_length=0)
+    gui_app.push_widget(dlg)
 
   def _callback(self, password: str):
     if password:
@@ -145,9 +149,13 @@ class BigParamIntControl(BigButtonBP):
     else:
       message = "enter a numberic value..."
 
+    def _wrapped_callback(val):
+      self._callback(val)
+      gui_app.pop_widget()
+
     dlg = BigInputDialogBP(message, str(self.get_param()),
-                         confirm_callback=self._callback, show_special_keys=True, minimum_length=0)
-    gui_app.set_modal_overlay(dlg)
+                         confirm_callback=_wrapped_callback, show_special_keys=True, minimum_length=0)
+    gui_app.push_widget(dlg)
 
   def _callback(self, password: str):
     if password:

@@ -551,13 +551,6 @@ class BluePilotLayout(Widget):
     network_options = [tr("None")]
     network_options.extend([n.ssid for n in self._saved_networks])
 
-    # Create dialog
-    self._preferred_network_dialog = MultiOptionDialog(
-      tr("Select Preferred Network"),
-      network_options,
-      current_favorite if current_favorite else tr("None")
-    )
-
     def handle_selection(result):
       """Handle selection from dialog"""
       if result == DialogResult.CONFIRM and self._preferred_network_dialog is not None:
@@ -578,7 +571,14 @@ class BluePilotLayout(Widget):
 
       self._preferred_network_dialog = None
 
-    gui_app.set_modal_overlay(self._preferred_network_dialog, callback=handle_selection)
+    # Create dialog with callback; MultiOptionDialog calls pop_widget and callback internally
+    self._preferred_network_dialog = MultiOptionDialog(
+      tr("Select Preferred Network"),
+      network_options,
+      current_favorite if current_favorite else tr("None"),
+      callback=handle_selection
+    )
+    gui_app.push_widget(self._preferred_network_dialog)
 
   def _clear_model_cache(self):
     """Clear ModelRunnerTypeCache and ModelManager_ActiveBundle, then reboot."""

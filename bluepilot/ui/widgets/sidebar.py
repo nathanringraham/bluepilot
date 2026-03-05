@@ -183,7 +183,7 @@ class SidebarBP(Widget):
     bp_version = _read_bp_version()
     if bp_version:
       params = Params()
-      def _on_dismiss():
+      def _on_dismiss(_result=None):
         params.put("BPLastSeenVersion", bp_version)
       dialog = RecentChangesDialog(bp_version, dismiss_callback=_on_dismiss)
       gui_app.push_widget(dialog)

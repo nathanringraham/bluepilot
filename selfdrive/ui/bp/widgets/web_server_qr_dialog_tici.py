@@ -30,7 +30,7 @@ class WebServerQRDialogTici(Widget):
     
     # Close button
     self._close_btn = IconButton(gui_app.texture("icons/close.png", 80, 80))
-    self._close_btn.set_click_callback(lambda: gui_app.set_modal_overlay(None))
+    self._close_btn.set_click_callback(gui_app.pop_widget)
 
   def _get_wifi_ip(self) -> str:
     """Get WiFi interface IP address."""
@@ -120,7 +120,7 @@ class WebServerQRDialogTici(Widget):
     self._params.put_bool("EnableWebRoutesServer", checked)
     if not checked:
       # Server was disabled, close the dialog
-      gui_app.set_modal_overlay(None)
+      gui_app.pop_widget()
 
   def _render(self, rect: rl.Rectangle) -> int:
     rl.clear_background(rl.Color(224, 224, 224, 255))
