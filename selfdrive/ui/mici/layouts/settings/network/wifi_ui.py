@@ -3,7 +3,6 @@ import numpy as np
 import pyray as rl
 from collections.abc import Callable
 
-from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigInputDialog, BigConfirmationDialogV2
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton, LABEL_COLOR
@@ -13,40 +12,36 @@ from openpilot.system.ui.widgets.scroller import NavScroller
 from openpilot.system.ui.lib.wifi_manager import WifiManager, Network, SecurityType, normalize_ssid
 
 
+def _display_ssid(ssid: str) -> str:
+  """Normalize and sanitize SSID for display; fallback for empty/hidden networks."""
+  s = normalize_ssid(ssid or "")
+  if not s:
+    return "Hidden Network"
+  # Filter non-printable chars that can cause blank rendering
+  return "".join(c for c in s if c.isprintable() or c in " \t") or "Hidden Network"
+
+
 class LoadingAnimation(Widget):
-  HIDE_TIME = 4
+  RADIUS = 8
+  SPACING = 24  # center-to-center: diameter (16) + gap (8)
+  Y_MAG = 11.2
 
   def __init__(self):
     super().__init__()
-    self._opacity_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
-    self._opacity_target = 1.0
-    self._hide_time = 0.0
-
-  def show_event(self):
-    self._opacity_target = 1.0
-    self._hide_time = rl.get_time()
+    w = self.SPACING * 2 + self.RADIUS * 2
+    h = self.RADIUS * 2 + int(self.Y_MAG)
+    self.set_rect(rl.Rectangle(0, 0, w, h))
 
   def _render(self, _):
-    if rl.get_time() - self._hide_time > self.HIDE_TIME:
-      self._opacity_target = 0.0
-
-    self._opacity_filter.update(self._opacity_target)
-
-    if self._opacity_filter.x < 0.01:
-      return
-
-    cx = int(self._rect.x + self._rect.width / 2)
-    cy = int(self._rect.y + self._rect.height / 2)
-
-    y_mag = 7
-    anim_scale = 4
-    spacing = 14
+    # Balls rest at bottom center; bounce upward
+    base_x = int(self._rect.x + self._rect.width / 2)
+    base_y = int(self._rect.y + self._rect.height - self.RADIUS)
 
     for i in range(3):
-      x = cx - spacing + i * spacing
-      y = int(cy + min(math.sin((rl.get_time() - i * 0.2) * anim_scale) * y_mag, 0))
-      alpha = int(np.interp(cy - y, [0, y_mag], [255 * 0.45, 255 * 0.9]) * self._opacity_filter.x)
-      rl.draw_circle(x, y, 5, rl.Color(255, 255, 255, alpha))
+      x = base_x + (i - 1) * self.SPACING
+      y = int(base_y + min(math.sin((rl.get_time() - i * 0.2) * 4) * self.Y_MAG, 0))
+      alpha = int(np.interp(base_y - y, [0, self.Y_MAG], [255 * 0.45, 255 * 0.9]))
+      rl.draw_circle(x, y, self.RADIUS, rl.Color(255, 255, 255, alpha))
 
 
 class WifiIcon(Widget):
@@ -100,7 +95,7 @@ class WifiButton(BigButton):
   SUB_LABEL_WIDTH = 402 - BigButton.LABEL_HORIZONTAL_PADDING * 2
 
   def __init__(self, network: Network, wifi_manager: WifiManager):
-    super().__init__(normalize_ssid(network.ssid), scroll=True)
+    super().__init__(_display_ssid(network.ssid), scroll=True)
 
     self._network = network
     self._wifi_manager = wifi_manager
@@ -123,6 +118,11 @@ class WifiButton(BigButton):
     self._wifi_icon.set_network_missing(False)
     if self._is_connected or self._is_connecting:
       self._wrong_password = False
+    self.set_text(_display_ssid(network.ssid))
+
+  @property
+  def network_forgetting(self) -> bool:
+    return self._network_forgetting
 
   def _forget_network(self):
     if self._network_forgetting:
@@ -161,11 +161,27 @@ class WifiButton(BigButton):
   def _get_label_font_size(self):
     return 48
 
+  def _render(self, rect):
+    super()._render(rect)
+    # BluePilot: draw SSID directly with raylib - UnifiedLabel may not render on C4
+    txt = _display_ssid(self._network.ssid)
+    if txt:
+      font = gui_app.font(FontWeight.BOLD)
+      x = int(self._rect.x + self.LABEL_PADDING)
+      y = int(self._rect.y + self.LABEL_VERTICAL_PADDING)
+      # Use _orig_draw_text_ex to bypass wrapper; apply FONT_SCALE manually
+      from openpilot.system.ui.lib.application import FONT_SCALE
+      draw_fn = getattr(rl, "_orig_draw_text_ex", rl.draw_text_ex)
+      draw_fn(font, txt, rl.Vector2(x, y), int(48 * FONT_SCALE), 0, LABEL_COLOR)
+
   def _draw_content(self, btn_y: float):
-    self._label.set_color(LABEL_COLOR)
-    label_rect = rl.Rectangle(self._rect.x + self.LABEL_PADDING, btn_y + self.LABEL_VERTICAL_PADDING,
-                              self.LABEL_WIDTH, self._rect.height - self.LABEL_VERTICAL_PADDING * 2)
-    self._label.render(label_rect)
+    # BluePilot: draw SSID directly - UnifiedLabel does not render on C4/MICI
+    x = int(self._rect.x + self.LABEL_PADDING)
+    y = int(btn_y + self.LABEL_VERTICAL_PADDING)
+    txt = _display_ssid(self._network.ssid)
+    if txt:
+      font = gui_app.font(FontWeight.BOLD)
+      rl.draw_text_ex(font, txt, rl.Vector2(x, y), 48, 0, LABEL_COLOR)
 
     if self.value:
       sub_label_x = self._rect.x + self.LABEL_HORIZONTAL_PADDING
@@ -270,11 +286,26 @@ class ForgetButton(Widget):
     rl.draw_texture_ex(self._trash_txt, (trash_x, trash_y), 0, 1.0, rl.WHITE)
 
 
+class ScanningButton(BigButton):
+  def __init__(self):
+    super().__init__("", "searching for networks")
+    self.set_enabled(False)
+    self._loading_animation = LoadingAnimation()
+
+  def _draw_content(self, btn_y: float):
+    super()._draw_content(btn_y)
+    anim = self._loading_animation
+    x = self._rect.x + self._rect.width - anim.rect.width - 40
+    y = btn_y + self._rect.height - anim.rect.height - 30
+    anim.set_position(x, y)
+    anim.render()
+
+
 class WifiUIMici(NavScroller):
   def __init__(self, wifi_manager: WifiManager):
     super().__init__()
 
-    self._loading_animation = LoadingAnimation()
+    self._scanning_btn = ScanningButton()
 
     self._wifi_manager = wifi_manager
     self._networks: dict[str, Network] = {}
@@ -285,20 +316,22 @@ class WifiUIMici(NavScroller):
       networks_updated=self._on_network_updated,
     )
 
+  @property
+  def any_network_forgetting(self) -> bool:
+    return any(btn.network_forgetting for btn in self._scroller.items if isinstance(btn, WifiButton))
+
   def show_event(self):
-    # Clear scroller items and update from latest scan results
+    # Re-sort scroller items and update from latest scan results (upstream: do NOT clear)
     super().show_event()
-    self._loading_animation.show_event()
     self._wifi_manager.set_active(True)
-    self._scroller.items.clear()
-    # trigger button update on latest sorted networks
-    self._on_network_updated(self._wifi_manager.networks)
+    self._networks = {n.ssid: n for n in self._wifi_manager.networks}
+    self._update_buttons(re_sort=True)
 
   def _on_network_updated(self, networks: list[Network]):
     self._networks = {network.ssid: network for network in networks}
     self._update_buttons()
 
-  def _update_buttons(self):
+  def _update_buttons(self, re_sort: bool = False):
     # Update existing buttons, add new ones to the end
     existing = {btn.network.ssid: btn for btn in self._scroller.items if isinstance(btn, WifiButton)}
 
@@ -310,10 +343,22 @@ class WifiUIMici(NavScroller):
         btn.set_click_callback(lambda ssid=network.ssid: self._connect_to_network(ssid))
         self._scroller.add_widget(btn)
 
-    # Mark networks no longer in scan results (display handled by _update_state)
-    for btn in self._scroller.items:
-      if isinstance(btn, WifiButton) and btn.network.ssid not in self._networks:
-        btn.set_network_missing(True)
+    if re_sort:
+      # Remove stale buttons and sort to match scan order, preserving eager state
+      btn_map = {btn.network.ssid: btn for btn in self._scroller.items if isinstance(btn, WifiButton)}
+      self._scroller.items[:] = [btn_map[ssid] for ssid in self._networks if ssid in btn_map]
+    else:
+      # Mark networks no longer in scan results (display handled by _update_state)
+      for btn in self._scroller.items:
+        if isinstance(btn, WifiButton) and btn.network.ssid not in self._networks:
+          btn.set_network_missing(True)
+
+    # Keep scanning button at the end
+    items = self._scroller.items
+    if self._scanning_btn in items:
+      items.append(items.pop(items.index(self._scanning_btn)))
+    else:
+      self._scroller.add_widget(self._scanning_btn)
 
   def _connect_with_password(self, ssid: str, password: str):
     self._wifi_manager.connect_to_network(ssid, password)
@@ -370,17 +415,3 @@ class WifiUIMici(NavScroller):
     super()._update_state()
 
     self._move_network_to_front(self._wifi_manager.wifi_state.ssid)
-
-    # Show loading animation near end
-    max_scroll = max(self._scroller.content_size - self._scroller.rect.width, 1)
-    progress = -self._scroller.scroll_panel.get_offset() / max_scroll
-    if progress > 0.8 or len(self._scroller.items) <= 1:
-      self._loading_animation.show_event()
-
-  def _render(self, _):
-    super()._render(self._rect)
-
-    anim_w = 90
-    anim_x = self._rect.x + self._rect.width - anim_w
-    anim_y = self._rect.y + self._rect.height - 25 + 2
-    self._loading_animation.render(rl.Rectangle(anim_x, anim_y, anim_w, 20))

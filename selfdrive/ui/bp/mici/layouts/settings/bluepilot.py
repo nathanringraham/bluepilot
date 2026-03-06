@@ -10,9 +10,10 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.ui.lib.multilang import tr
+from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.system.ui.widgets import DialogResult
 from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
-from openpilot.selfdrive.ui.bp.mici.widgets.web_server_qr_dialog import WebServerQRDialog
+from openpilot.selfdrive.ui.bp.mici.widgets.preferred_network_select import PreferredNetworkSelectMici
 
 class BluePilotLayoutMici(NavWidget):
   def __init__(self, back_callback: Callable):
@@ -20,6 +21,20 @@ class BluePilotLayoutMici(NavWidget):
     self.set_back_callback(back_callback)
     self._params = Params()
     self.lane_change_factor_high = float(self._params.get("lane_change_factor_high", return_default=True))
+
+    # WifiManager for preferred network selector (same pattern as TICI BluePilotLayout)
+    self._wifi_manager = WifiManager()
+    self._wifi_manager.set_active(False)  # Don't scan unless menu is shown
+    self._saved_networks: list[Network] = []
+    self._wifi_manager.add_callbacks(networks_updated=self._on_network_updated)
+
+    # Preferred WiFi network selector (same as TICI - list of saved networks)
+    self.preferred_network_btn = BigButtonBP(
+      tr("Preferred WiFi Network"),
+      "",
+      "icons_mici/settings/network/wifi_strength_full.png"
+    )
+    self.preferred_network_btn.set_click_callback(self._select_preferred_network)
 
     # ******** Main Scroller ********
     self.enable_web_routes = BigParamControlBP("enable web routes server", "EnableWebRoutesServer")
@@ -75,6 +90,7 @@ class BluePilotLayoutMici(NavWidget):
     self._scroller._scroller.add_widgets([
       self.enable_web_routes,
       self.show_web_routes_qr,
+      self.preferred_network_btn,
       self.show_hands_free_ui,
       self.show_lead_vehicle,
       self.show_brake_status,
@@ -137,8 +153,17 @@ class BluePilotLayoutMici(NavWidget):
     self._scroller.show_event()
     self._update_toggles()
     self._update_buttons()
+    # Enable WiFi scanning when BluePilot menu is shown
+    self._wifi_manager.set_active(True)
+    self.preferred_network_btn.set_value(self._get_preferred_network_display())
+
+  def hide_event(self):
+    super().hide_event()
+    # Disable WiFi scanning when BluePilot menu is hidden
+    self._wifi_manager.set_active(False)
 
   def _render(self, rect: rl.Rectangle):
+    self._wifi_manager.process_callbacks()
     self._scroller.render(rect)
 
   def _clear_model_cache(self):
@@ -207,6 +232,62 @@ class BluePilotLayoutMici(NavWidget):
 
     # Low Curvature PID Gain: requires BOTH lane positioning AND custom profile
     self.LC_PID_gain.set_enabled(lane_positioning_enabled and custom_profile_enabled)
+
+    # Preferred WiFi Network: enable when saved networks exist, refresh display value
+    self.preferred_network_btn.set_enabled(len(self._saved_networks) > 0)
+    self.preferred_network_btn.set_value(self._get_preferred_network_display())
+
+  def _on_network_updated(self, networks: list[Network]):
+    """Update saved networks list when WiFi networks are updated (callback from WifiManager)."""
+    self._saved_networks = [n for n in networks if self._wifi_manager.is_connection_saved(n.ssid)]
+    self.preferred_network_btn.set_enabled(len(self._saved_networks) > 0)
+    self.preferred_network_btn.set_value(self._get_preferred_network_display())
+
+    # Clear preferred if network was forgotten in NetworkManager
+    try:
+      favorite_value = self._params.get("WifiFavoriteSSID")
+      current_favorite = ""
+      if favorite_value:
+        if isinstance(favorite_value, bytes):
+          current_favorite = favorite_value.decode("utf-8", errors="replace").strip("\x00")
+        else:
+          current_favorite = str(favorite_value).strip("\x00")
+      if current_favorite:
+        saved_connections = self._wifi_manager._get_connections()
+        if current_favorite not in saved_connections:
+          self._params.put("WifiFavoriteSSID", "")
+          cloudlog.info(f"Cleared preferred network '{current_favorite}' - network no longer saved in NetworkManager")
+    except Exception as e:
+      cloudlog.debug(f"Error checking preferred network: {e}")
+
+  def _get_preferred_network_display(self) -> str:
+    """Get the display text for preferred network."""
+    try:
+      favorite_value = self._params.get("WifiFavoriteSSID")
+      if favorite_value:
+        if isinstance(favorite_value, bytes):
+          favorite_ssid = favorite_value.decode("utf-8", errors="replace").strip("\x00")
+        else:
+          favorite_ssid = str(favorite_value).strip("\x00")
+        if favorite_ssid:
+          if len(favorite_ssid) > 20:
+            return favorite_ssid[:17] + "..."
+          return favorite_ssid
+    except Exception:
+      pass
+    return tr("None")
+
+  def _select_preferred_network(self):
+    """Open horizontal-scroll panel to select preferred network (same pattern as WiFi network panel)."""
+    if len(self._saved_networks) == 0:
+      return
+
+    panel = PreferredNetworkSelectMici(
+      self._wifi_manager,
+      self._saved_networks,
+      on_dismiss=lambda: self.preferred_network_btn.set_value(self._get_preferred_network_display())
+    )
+    gui_app.push_widget(panel)
 
   def _update_toggles(self):
     ui_state.update_params()

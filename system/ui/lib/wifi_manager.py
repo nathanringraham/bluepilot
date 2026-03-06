@@ -17,10 +17,12 @@ from jeepney.wrappers import Properties
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.system.ui.lib.networkmanager import (NM, NM_WIRELESS_IFACE, NM_802_11_AP_SEC_PAIR_WEP40,
-                                                    NM_802_11_AP_SEC_PAIR_WEP104, NM_802_11_AP_SEC_GROUP_WEP40,
-                                                    NM_802_11_AP_SEC_GROUP_WEP104, NM_802_11_AP_SEC_KEY_MGMT_PSK,
-                                                    NM_802_11_AP_SEC_KEY_MGMT_802_1X, NM_802_11_AP_FLAGS_NONE,
-                                                    NM_802_11_AP_FLAGS_PRIVACY, NM_802_11_AP_FLAGS_WPS,
+                                                    NM_802_11_AP_SEC_PAIR_WEP104, NM_802_11_AP_SEC_PAIR_TKIP,
+                                                    NM_802_11_AP_SEC_PAIR_CCMP, NM_802_11_AP_SEC_GROUP_WEP40,
+                                                    NM_802_11_AP_SEC_GROUP_WEP104, NM_802_11_AP_SEC_GROUP_TKIP,
+                                                    NM_802_11_AP_SEC_GROUP_CCMP, NM_802_11_AP_SEC_KEY_MGMT_PSK,
+                                                    NM_802_11_AP_SEC_KEY_MGMT_802_1X, NM_802_11_AP_SEC_KEY_MGMT_SAE,
+                                                    NM_802_11_AP_FLAGS_NONE, NM_802_11_AP_FLAGS_PRIVACY, NM_802_11_AP_FLAGS_WPS,
                                                     NM_PATH, NM_IFACE, NM_ACCESS_POINT_IFACE, NM_SETTINGS_PATH,
                                                     NM_SETTINGS_IFACE, NM_CONNECTION_IFACE, NM_DEVICE_IFACE,
                                                     NM_DEVICE_TYPE_WIFI, NM_DEVICE_TYPE_MODEM, NM_ACTIVE_CONNECTION_IFACE,
@@ -76,8 +78,11 @@ def get_security_type(flags: int, wpa_flags: int, rsn_flags: int) -> SecurityTyp
   wpa_props = wpa_flags | rsn_flags
 
   # obtained by looking at flags of networks in the office as reported by an Android phone
-  supports_wpa = (NM_802_11_AP_SEC_PAIR_WEP40 | NM_802_11_AP_SEC_PAIR_WEP104 | NM_802_11_AP_SEC_GROUP_WEP40 |
-                  NM_802_11_AP_SEC_GROUP_WEP104 | NM_802_11_AP_SEC_KEY_MGMT_PSK)
+  # BluePilot: expanded to include WPA2/WPA3 (CCMP, TKIP, SAE) - fixes blank SSIDs on C4/MICI
+  supports_wpa = (NM_802_11_AP_SEC_PAIR_WEP40 | NM_802_11_AP_SEC_PAIR_WEP104 | NM_802_11_AP_SEC_PAIR_TKIP |
+                  NM_802_11_AP_SEC_PAIR_CCMP | NM_802_11_AP_SEC_GROUP_WEP40 | NM_802_11_AP_SEC_GROUP_WEP104 |
+                  NM_802_11_AP_SEC_GROUP_TKIP | NM_802_11_AP_SEC_GROUP_CCMP | NM_802_11_AP_SEC_KEY_MGMT_PSK |
+                  NM_802_11_AP_SEC_KEY_MGMT_SAE)
 
   if (flags == NM_802_11_AP_FLAGS_NONE) or ((flags & NM_802_11_AP_FLAGS_WPS) and not (wpa_props & supports_wpa)):
     return SecurityType.OPEN

@@ -246,8 +246,10 @@ class BigButton(Widget):
       scaled_rect = rl.Rectangle(btn_x, btn_y, self._rect.width * scale, self._rect.height * scale)
       rl.draw_rectangle_rounded(scaled_rect, 0.4, 7, rl.Color(0, 0, 0, int(255 * 0.5)))
 
-      self._draw_content(btn_y)
+      # BluePilot: draw texture before content so label is visible on top (fixes blank SSID on C4)
       rl.draw_texture_ex(txt_bg, (btn_x, btn_y), 0, scale, rl.WHITE)
+      self._draw_content(btn_y)
+      # End BluePilot
     else:
       rl.draw_texture_ex(txt_bg, (btn_x, btn_y), 0, scale, rl.WHITE)
       self._draw_content(btn_y)
