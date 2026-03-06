@@ -111,6 +111,12 @@ class IntelligentCruiseButtonManagement:
     ready = CC.enabled and not CC.cruiseControl.override and not CC.cruiseControl.cancel and not CC.cruiseControl.resume
     button_pressed = any(self.cruise_button_timers[k] > 0 for k in self.cruise_button_timers)
 
+    # Clear button timers when cruise is disabled to prevent stale presses
+    # This ensures that when cruise is re-enabled, ICBM doesn't see stale button presses
+    if not ready:
+      for k in self.cruise_button_timers:
+        self.cruise_button_timers[k] = 0
+
     self.is_ready = ready and not button_pressed
 
   def run(self, CS: car.CarState, CC: car.CarControl, LP_SP: custom.LongitudinalPlanSP, is_metric: bool) -> None:
