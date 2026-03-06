@@ -42,6 +42,7 @@ class BigInputDialogBP(BigDialogBase):
     self._top_left_button_rect = rl.Rectangle(0, 0, 0, 0)
     self._top_right_button_rect = rl.Rectangle(0, 0, 0, 0)
 
+    self._ret = None  # Only set to CONFIRM when user taps enter; prevents AttributeError in _render before first confirm
     def confirm_callback_wrapper():
       self._ret = DialogResult.CONFIRM
       if confirm_callback:
