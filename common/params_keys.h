@@ -312,11 +312,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Blindspot", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"BlinkerPauseLaneChange", {PERSISTENT | BACKUP, BOOL, "0"}},
 
-    // BluePilot Portal (Web Routes Server)
+    // BluePilot: Portal (Web Routes Server)
     {"EnableWebRoutesServer", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"BPPortalPort", {PERSISTENT | BACKUP, INT, "8088"}},
 
-    // BluePilot UI
+    // BluePilot: UI params
     {"BPLastSeenVersion", {PERSISTENT, STRING}},
 
     // WiFi Management

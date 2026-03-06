@@ -127,19 +127,19 @@ class PowerMonitoring:
     now = time.monotonic()
     should_shutdown = False
 
-    #BluePilot - Custom Shutdown Voltage
+    # BluePilot: Custom shutdown voltage - vbatt_pause_charging param allows user-configurable cutoff
     try:
       param = self.params.get("vbatt_pause_charging")
       vbatt_cutoff = param if param is not None and param >= 0 else VBATT_PAUSE_CHARGING
     except Exception:
       vbatt_cutoff = VBATT_PAUSE_CHARGING
-    #BluePilot - Custom Shutdown Voltage
+    # End BluePilot
 
     offroad_time = (now - offroad_timestamp)
-    #BluePilot - Custom Shutdown Voltage
+    # BluePilot: Custom shutdown voltage threshold using configurable param
     low_voltage_shutdown = (self.car_voltage_mV < (vbatt_cutoff * 1e3) and
                             offroad_time > VOLTAGE_SHUTDOWN_MIN_OFFROAD_TIME_S)
-    #BluePilot - Custom Shutdown Voltage
+    # End BluePilot
     should_shutdown |= self.max_time_offroad_exceeded(offroad_time)
     should_shutdown |= low_voltage_shutdown
     should_shutdown |= (self.car_battery_capacity_uWh <= 0)

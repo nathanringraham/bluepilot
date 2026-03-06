@@ -67,7 +67,10 @@ class MiciComplication(Widget):
       case ComplicationType.lead_car_speed:
         self._render_lead_speed(rect)
       case ComplicationType.speed:
-        self._render_current_speed(rect)
+        # BluePilot: Respect "Speedometer: Hide from Onroad Screen" (HideVEgoUI) from Visuals.
+        # Read param directly for immediate response (ui_state.hide_v_ego_ui refreshes every 5s).
+        if not self.params.get_bool("HideVEgoUI"):
+          self._render_current_speed(rect)
       case ComplicationType.lead_car_dist:
         self._render_lead_dist(rect)
       case ComplicationType.lead_car_time:
@@ -124,7 +127,10 @@ class MiciComplication(Widget):
     chevron = [(x + (size * 1.25), y + size), (x, y), (x - (size * 1.25), y + size)]
     rl.draw_triangle_fan(chevron, len(chevron), rl.Color(201, 34, 49, int(150 * fade_ratio)))
 
-  def _render_current_speed(self,rect: rl.Rectangle):
+  def _render_current_speed(self, rect: rl.Rectangle) -> None:
+    # BluePilot: Respect "Speedometer: Hide from Onroad Screen" (HideVEgoUI) from Visuals
+    if ui_state.hide_v_ego_ui:
+      return
     self._font_color = rl.Color(255, 255, 255, 220)
     shadow_color = rl.Color(0, 0, 0, 180)
 

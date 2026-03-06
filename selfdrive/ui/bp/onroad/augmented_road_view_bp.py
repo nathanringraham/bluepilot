@@ -1,6 +1,6 @@
 import time
 import pyray as rl
-from cereal import messaging
+from cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
@@ -189,8 +189,16 @@ class AugmentedRoadViewBP(AugmentedRoadView, BlindspotRendererMixin):
         torque_rect = rl.Rectangle(ui_rect.x, ui_rect.y, ui_rect.width, ui_rect.height - get_bottom_dev_ui_offset())
       self._torque_bar.render(torque_rect, gauge_height_offset=gauge_height_offset)
 
-    # Alerts last so they are never covered by gauges or other overlays
-    self.alert_renderer.render(ui_rect)
+    # Alerts last so they are never covered by gauges or other overlays.
+    # BluePilot: Full-screen alerts (e.g. reverse gear) must use content_rect so they cover
+    # the confidence ball strip; otherwise the camera shows through where the ball was.
+    alert = self.alert_renderer.get_alert(ui_state.sm)
+    alert_rect = (
+      self._content_rect
+      if (alert and alert.size == log.SelfdriveState.AlertSize.full and self._show_confidence_ball)
+      else ui_rect
+    )
+    self.alert_renderer.render(alert_rect)
 
     bp_ui_log.scissor("AugRoadView", "end")
     rl.end_scissor_mode()

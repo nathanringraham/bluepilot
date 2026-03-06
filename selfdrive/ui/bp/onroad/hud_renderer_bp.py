@@ -82,6 +82,11 @@ class HudRendererBP(HudRendererSP):
 
   def _draw_current_speed(self, rect: rl.Rectangle) -> None:
     """Override to add brake status red coloring and track speed_right."""
+    # BluePilot: Respect "Speedometer: Hide from Onroad Screen" (HideVEgoUI) from Visuals.
+    # Read param directly for immediate response (ui_state.hide_v_ego_ui refreshes every 5s).
+    if self._bp_params.get_bool("HideVEgoUI"):
+      self.speed_right = 0
+      return
     speed_text = str(round(self.speed))
     speed_text_size = measure_text_cached(self._font_bold, speed_text, FONT_SIZES.current_speed)
     speed_pos = rl.Vector2(

@@ -189,7 +189,7 @@ procs += [
 
 # bluepilot
 procs += [
-  # BluePilot Portal (routes, video streaming, exports, system metrics)
+  # BluePilot: Portal (routes, video streaming, exports, system metrics)
   PythonProcess("bp_portal", "bluepilot.backend.bp_portal", portal_enabled),
   # Route preprocessor (runs in background during idle time)
   PythonProcess("bp_route_preprocessor", "bluepilot.backend.routes.preprocessor", route_preprocessor_enabled),
