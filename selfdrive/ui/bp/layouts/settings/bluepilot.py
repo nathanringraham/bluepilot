@@ -13,6 +13,7 @@ from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wifi_manager import WifiManager, Network
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.bp.widgets.float_control_item import float_control_item
+from openpilot.selfdrive.ui.bp.widgets.section_header import SectionHeader
 
 
 class BluePilotLayout(Widget):
@@ -64,6 +65,7 @@ class BluePilotLayout(Widget):
       ("FordPrefHybridBatteryStatus", self._show_hybrid_battery_status),
       ("FordPrefHybridPowerFlow", self._show_hybrid_power_flow),
       ("enable_human_turn_detection", self._enable_human_turn_detection),
+      ("BlinkerPauseLaneChange", self._disable_lane_change_under_speed),
       ("enable_lane_positioning", self._enable_lane_positioning),
       ("enable_lane_full_mode", self._enable_lane_full_mode),
       ("custom_profile", self._custom_profile),
@@ -244,6 +246,15 @@ class BluePilotLayout(Widget):
       icon="speed_limit.png"
     )
 
+    # Disable lane change under speed toggle (BlinkerPauseLaneChange)
+    self._disable_lane_change_under_speed = toggle_item(
+      lambda: tr("Disable Lane Change Under Speed"),
+      lambda: tr("Pause lateral control when blinker is on and below minimum speed."),
+      initial_state=self._safe_get_bool(self._params, "BlinkerPauseLaneChange"),
+      callback=lambda state: self._toggle_callback(state, "BlinkerPauseLaneChange"),
+      icon="chffr_wheel.png"
+    )
+
     # Enable lane positioning toggle
     self._enable_lane_positioning = toggle_item(
       lambda: tr("Enable Lane Positioning"),
@@ -386,11 +397,19 @@ class BluePilotLayout(Widget):
       callback=self._clear_model_cache
     )
 
+    # Build menu with sections per TICI_MENU.csv
     return [
+      SectionHeader(tr("System")),
+      self._preferred_network_btn,
+      self._clear_model_cache_btn,
+      self._ui_debug_log,
+      SectionHeader(tr("Vehicle")),
       self._show_hands_free_ui,
+      self._vbatt_pause_charging,
+      SectionHeader(tr("Visuals")),
+      self._hide_onroad_border,
       self._show_blindspot,
       self._show_brake_status,
-      self._hide_onroad_border,
       self._show_confidence_ball,
       self._animate_steering_wheel,
       self._show_ford_radar_overlay,
@@ -399,7 +418,13 @@ class BluePilotLayout(Widget):
       self._show_hybrid_power_flow,
       self._hybrid_gauge_size_btn,
       self._hybrid_gauge_style_btn,
+      SectionHeader(tr("Longitudinal Tuning")),
+      self._disable_BP_long,
+      self._disable_dowhill_comp,
+      SectionHeader(tr("Lateral Tuning")),
+      self._disable_BP_lat,
       self._enable_human_turn_detection,
+      self._disable_lane_change_under_speed,
       self._lane_change_factor_high,
       self._enable_lane_positioning,
       self._custom_path_offset,
@@ -408,13 +433,6 @@ class BluePilotLayout(Widget):
       self._pc_blend_ratio_high_C,
       self._pc_blend_ratio_low_C,
       self._lc_pid_gain,
-      self._vbatt_pause_charging,
-      self._disable_BP_lat,
-      self._disable_BP_long,
-      self._disable_dowhill_comp,
-      self._preferred_network_btn,
-      self._clear_model_cache_btn,
-      self._ui_debug_log,
     ]
 
   def _get_float_param(self, param: str, default: float) -> float:
