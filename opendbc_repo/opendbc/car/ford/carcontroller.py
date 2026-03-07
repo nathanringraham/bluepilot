@@ -275,6 +275,9 @@ class CarController(CarControllerBase, IntelligentCruiseButtonManagementInterfac
 
   def _update_params(self):
     self.send_hands_free_cluster_msg = self.params.get_bool("send_hands_free_cluster_msg")
+    # Block hands-free UI on CAN vehicles - only CAN-FD supports the cluster message
+    if not (self.CP.flags & FordFlags.CANFD):
+      self.send_hands_free_cluster_msg = False
     self.enable_human_turn_detection = self.params.get_bool("enable_human_turn_detection")
     # updated from UI: lane_change_factor at 40.23 m/s
     self.lane_change_factor_high = float(self.params.get("lane_change_factor_high", return_default=True))
