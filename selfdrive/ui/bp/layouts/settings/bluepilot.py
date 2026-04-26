@@ -125,6 +125,14 @@ class BluePilotLayout(Widget):
       callback=lambda state: self._toggle_callback(state, "BPHideOnroadBorder"),
       icon="warning.png"
     )
+    #Toggle Minimal Driving View
+    self._hide_camera_view = toggle_item(
+      lambda: tr("Minimal Driving View"),
+      lambda: tr("Hide camera feed and show lane lines only."),
+      initial_state=self._safe_get_bool(self._params, "BPHideCameraView"),
+      callback=lambda state: self._toggle_callback(state, "BPHideCameraView"),
+      icon="chffr_wheel.png"
+)
 
     # Show confidence ball toggle
     self._show_confidence_ball = toggle_item(
@@ -418,6 +426,7 @@ class BluePilotLayout(Widget):
       self._vbatt_pause_charging,
       SectionHeader(tr("Visuals")),
       self._hide_onroad_border,
+      self._hide_camera_view,
       self._disable_lane_line_status_color,
       self._show_blindspot,
       self._show_brake_status,

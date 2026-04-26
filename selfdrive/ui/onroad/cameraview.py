@@ -9,6 +9,12 @@ from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.egl import init_egl, create_egl_image, destroy_egl_image, bind_egl_image_to_texture, EGLImage
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.common.params import Params
+params = Params()
+try:
+  hide_camera = params.get_bool("BPHideCameraView")
+except Exception:
+  hide_camera = False
 
 CONNECTION_RETRY_INTERVAL = 0.2  # seconds between connection attempts
 
@@ -220,16 +226,18 @@ class CameraView(Widget):
     dst_rect = rl.Rectangle(x_offset, y_offset, scale_x, scale_y)
 
     # Render with appropriate method
+    if hide_camera:
+      rl.draw_rectangle_rec(rect, rl.BLACK)
     if TICI:
-      self._render_egl(src_rect, dst_rect)
+      self._render_egl(src_rect, dst_rect, hide_camera)
     else:
-      self._render_textures(src_rect, dst_rect)
+      self._render_textures(src_rect, dst_rect, hide_camera)
 
   def _draw_placeholder(self, rect: rl.Rectangle):
     if self._placeholder_color:
       rl.draw_rectangle_rec(rect, self._placeholder_color)
 
-  def _render_egl(self, src_rect: rl.Rectangle, dst_rect: rl.Rectangle) -> None:
+  def _render_egl(self, src_rect: rl.Rectangle, dst_rect: rl.Rectangle, hide_camera) -> None:
     """Render using EGL for direct buffer access"""
     if self.frame is None or self.egl_texture is None:
       return
@@ -253,11 +261,11 @@ class CameraView(Widget):
     bind_egl_image_to_texture(self.egl_texture.id, egl_image)
 
     # Render with shader
-    rl.begin_shader_mode(self.shader)
-    rl.draw_texture_pro(self.egl_texture, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
-    rl.end_shader_mode()
-
-  def _render_textures(self, src_rect: rl.Rectangle, dst_rect: rl.Rectangle) -> None:
+    if not hide_camera:
+      rl.begin_shader_mode(self.shader)
+      rl.draw_texture_pro(self.egl_texture, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
+      rl.end_shader_mode()
+  def _render_textures(self, src_rect: rl.Rectangle, dst_rect: rl.Rectangle, hide_camera) -> None:
     """Render using texture copies"""
     if not self.texture_y or not self.texture_uv or self.frame is None:
       return
@@ -272,10 +280,11 @@ class CameraView(Widget):
       self._texture_needs_update = False
 
     # Render with shader
-    rl.begin_shader_mode(self.shader)
-    rl.set_shader_value_texture(self.shader, self._texture1_loc, self.texture_uv)
-    rl.draw_texture_pro(self.texture_y, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
-    rl.end_shader_mode()
+    if not hide_camera:
+      rl.begin_shader_mode(self.shader)
+      rl.set_shader_value_texture(self.shader, self._texture1_loc, self.texture_uv)
+      rl.draw_texture_pro(self.texture_y, src_rect, dst_rect, rl.Vector2(0, 0), 0.0, rl.WHITE)
+      rl.end_shader_mode()
 
   def _ensure_connection(self) -> bool:
     if not self.client.is_connected():

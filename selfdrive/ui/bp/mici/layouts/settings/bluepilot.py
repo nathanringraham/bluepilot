@@ -45,6 +45,7 @@ class BluePilotLayoutMici(NavWidget):
     self.show_brake_status = BigParamControlBP("show brake status", "ShowBrakeStatus")
     self.show_blindspot_ui = BigParamControlBP("show blindspot overlay", "ShowBlindspotOverlay")
     self.rainbow_mode = BigParamControlBP("rainbow mode", "RainbowMode")
+    self.hide_camera_view = BigParamControlBP("minimal driving view (hide camera)", "BPHideCameraView")
     self.enable_human_turn_detection = BigParamControlBP("enable human turn detection", "enable_human_turn_detection")
     self.lane_change_factor_high = BigParamFloatControl("lane change factor high", "lane_change_factor_high", min=0.5, max=1.0)
     self.enable_lane_positioning = BigParamControlBP("enable lane positioning", "enable_lane_positioning", tint=rl.GREEN)
