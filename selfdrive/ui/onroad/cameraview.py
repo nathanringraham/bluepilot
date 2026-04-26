@@ -10,11 +10,6 @@ from openpilot.system.ui.lib.egl import init_egl, create_egl_image, destroy_egl_
 from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.common.params import Params
-params = Params()
-try:
-  hide_camera = params.get_bool("BPHideCameraView")
-except Exception:
-  hide_camera = False
 
 CONNECTION_RETRY_INTERVAL = 0.2  # seconds between connection attempts
 
@@ -73,6 +68,7 @@ else:
 
 class CameraView(Widget):
   def __init__(self, name: str, stream_type: VisionStreamType):
+    self.params = Params()
     super().__init__()
     self._name = name
     # Primary stream
@@ -224,10 +220,13 @@ class CameraView(Widget):
     y_offset += transform[1, 2] * rect.height / 2
 
     dst_rect = rl.Rectangle(x_offset, y_offset, scale_x, scale_y)
-
+    
+    #Read Param Live Every Frame
+    hide_camera = self.params.get_bool("BPHideCameraView")
     # Render with appropriate method
     if hide_camera:
       rl.draw_rectangle_rec(rect, rl.BLACK)
+      return
     if TICI:
       self._render_egl(src_rect, dst_rect, hide_camera)
     else:
