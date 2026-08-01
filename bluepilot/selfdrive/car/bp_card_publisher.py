@@ -79,6 +79,7 @@ def _refresh_settings_cache() -> dict:
     "bmsEightBitRacerTheme":           _get_bool(p, "BPRadRacerTheme"),
     "bmsRainbowLaneLines":             _get_bool(p, "BPRainbowLines"),
     "bmsShowBlindspotOverlay":         _get_bool(p, "ShowBlindspotOverlay", True),
+    "bmsDcamBlindspotLaneChange":      _get_bool(p, "BPCroppedDcam"),
     "bmsShowBrakeStatus":              _get_bool(p, "ShowBrakeStatus"),
     "bmsShowConfidenceBall":           _get_bool(p, "BPShowConfidenceBall", True),
     "bmsAnimateSteeringWheel":         _get_bool(p, "BPAnimateSteeringWheel", True),

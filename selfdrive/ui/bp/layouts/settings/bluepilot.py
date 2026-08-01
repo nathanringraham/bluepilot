@@ -83,6 +83,7 @@ class BluePilotLayout(Widget):
       ("BPRadRacerTheme", self._rad_racer_theme),
       ("BPRainbowLines", self._rainbow_lane_lines),
       ("ShowBlindspotOverlay", self._show_blindspot),
+      ("BPCroppedDcam", self._cropped_dcam),
       ("ShowBrakeStatus", self._show_brake_status),
       ("BPHideOnroadBorder", self._hide_onroad_border),
       ("BPShowConfidenceBall", self._show_confidence_ball),
@@ -172,6 +173,16 @@ class BluePilotLayout(Widget):
       lambda: tr("Display red overlay when vehicle is detected in blindspot."),
       initial_state=self._safe_get_bool(self._params, "ShowBlindspotOverlay"),
       callback=lambda state: self._toggle_callback(state, "ShowBlindspotOverlay"),
+      icon="warning.png"
+    )
+
+    # Cropped driver-camera lane-change/blindspot view. This deliberately has
+    # its own parameter and does not gate either existing blindspot renderer.
+    self._cropped_dcam = toggle_item(
+      lambda: tr("DCam Blindspot/Lane Change"),
+      lambda: tr("Show a cropped version of the Driver Camera when a car is detected in your blindspot or if your turn signal is active."),
+      initial_state=self._safe_get_bool(self._params, "BPCroppedDcam"),
+      callback=lambda state: self._toggle_callback(state, "BPCroppedDcam"),
       icon="warning.png"
     )
 
@@ -687,6 +698,7 @@ class BluePilotLayout(Widget):
         self._rad_racer_theme,
         self._rainbow_lane_lines,
         self._show_blindspot,
+        self._cropped_dcam,
         self._show_brake_status,
         self._show_confidence_ball,
         self._animate_steering_wheel,

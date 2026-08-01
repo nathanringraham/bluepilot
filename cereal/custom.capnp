@@ -553,6 +553,9 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
   # Only published by Ford BP, so other cars show nothing.
   activeLateralMode @54 :LateralMode;
 
+  # BluePilot: append-only menu fields (kept here so existing ordinals never move).
+  bmsDcamBlindspotLaneChange @55 :Bool;  # BPCroppedDcam
+
   enum LateralMode {
     openpilot @0;  # BP lateral bypassed (disable_BP_lat_UI)
     curvature @1;

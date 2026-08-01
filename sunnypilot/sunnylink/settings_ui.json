@@ -2240,6 +2240,12 @@
           "description": "Display red overlay when a vehicle is detected in the blindspot."
         },
         {
+          "key": "BPCroppedDcam",
+          "widget": "toggle",
+          "title": "[Visuals] DCam Blindspot/Lane Change",
+          "description": "Show a cropped version of the Driver Camera when a car is detected in your blindspot or if your turn signal is active."
+        },
+        {
           "key": "ShowBrakeStatus",
           "widget": "toggle",
           "title": "[Visuals] Show Brake Status",

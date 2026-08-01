@@ -7,6 +7,11 @@ from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
 from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
+from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
+  active_dcam_sides,
+  adaptive_window_center_y,
+)
+from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_view import CroppedDcamViewBP
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP
 from openpilot.selfdrive.ui.bp.onroad.alert_renderer_bp import AlertRendererBP
 from openpilot.selfdrive.ui.bp.onroad.model_renderer_bp import ModelRendererBP
@@ -47,6 +52,8 @@ TORQUE_STRIP_GAP = 3       # Gap between strip bottom and gauge content top
 
 # Full screen reference for sidebar detection
 FULL_CONTENT_WIDTH = 2100.0
+DCAM_LEFT_UI_INSET = 175.0
+DCAM_RIGHT_DEV_UI_INSET = 230.0
 
 
 class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixin):
@@ -88,6 +95,11 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     self._rad_racer_theme = RadRacerTheme()
     self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
 
+    # BluePilot: independent driver-stream client for the side-window crop. It
+    # never switches or replaces the forward road stream.
+    self._cropped_dcam = self._child(CroppedDcamViewBP())
+    self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
+
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
     pass
@@ -111,6 +123,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       self._hybrid_gauge_style = GaugeStyle(self._bp_params.get("FordPrefGaugeStyle", return_default=True) or 0)
       # BluePilot: Rad Racer theme toggle
       self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
+      self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
@@ -175,6 +188,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
         self._content_rect.height,
       )
       self._confidence_ball.render(ball_rect)
+
+    # BluePilot: Side-window dcam crop is outside the center model corridor.
+    # Render it after model geometry but before the independent red edge overlay.
+    self._render_cropped_dcam(self._content_rect, ball_offset)
 
     # BluePilot: Draw blindspot screen edge indicators ON TOP of confidence ball backdrop
     # so the red safety warning is never obscured
@@ -247,6 +264,9 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # Green game road (ModelRendererBP handles the 8-bit styling internally)
     self.model_renderer.render(content_rect)
 
+    # Lane-change safety view stays available with the alternate visual theme.
+    self._render_cropped_dcam(content_rect, 0.0)
+
     # Blindspot red edges stay on — safety overlay
     self._draw_blindspot_screen_edges(content_rect, self.BLIND_SPOT_WIDTH)
 
@@ -267,6 +287,44 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
 
     if not self._hide_onroad_border:
       self._draw_border(rect)
+
+  def _render_cropped_dcam(self, content_rect: rl.Rectangle, ball_offset: float) -> None:
+    """Render the requested side(s) without consuming either blindspot UI toggle."""
+    if not self._cropped_dcam_enabled and not self._cropped_dcam.is_visible():
+      return
+
+    sm = ui_state.sm
+    left_active = right_active = False
+    if self._cropped_dcam_enabled and sm.valid['carState']:
+      left_active, right_active = active_dcam_sides(sm['carState'])
+
+    calibration_rpy = (0.0, 0.0, 0.0)
+    if sm.valid['liveCalibration'] and len(sm['liveCalibration'].rpyCalib) == 3:
+      calibration_rpy = tuple(sm['liveCalibration'].rpyCalib)
+
+    window_center_y = 0.55
+    if sm.valid['driverStateV2']:
+      driver_state = sm['driverStateV2']
+      is_rhd = driver_state.wheelOnRightProb > 0.5
+      driver_data = driver_state.rightDriverData if is_rhd else driver_state.leftDriverData
+      window_center_y = adaptive_window_center_y(driver_data.facePosition, driver_data.faceProb)
+
+    focal_length = self.device_camera.dcam.focal_length if self.device_camera is not None else 567.0
+    right_inset = (
+      DCAM_RIGHT_DEV_UI_INSET
+      if ui_state.developer_ui in (DeveloperUiState.RIGHT, DeveloperUiState.BOTH)
+      else 0.0
+    )
+    self._cropped_dcam.render_crops(
+      content_rect,
+      left_active,
+      right_active,
+      calibration_rpy,
+      window_center_y,
+      focal_length,
+      left_inset=max(DCAM_LEFT_UI_INSET, ball_offset),
+      right_inset=right_inset,
+    )
 
   def _get_dm_center_y(self, content_rect: rl.Rectangle) -> float:
     """Get the driver monitor face icon's vertical center Y coordinate.
