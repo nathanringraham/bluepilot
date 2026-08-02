@@ -9,7 +9,7 @@ from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   DEFAULT_WINDOW_CENTER_Y,
-  active_dcam_triggers,
+  active_dcam_sides,
   adaptive_window_center_y,
 )
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_view import CroppedDcamViewBP
@@ -293,11 +293,9 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       return
 
     sm = ui_state.sm
-    left_trigger = right_trigger = None
+    left_active = right_active = False
     if self._cropped_dcam_enabled and sm.valid['carState']:
-      left_trigger, right_trigger = active_dcam_triggers(sm['carState'])
-    left_active = left_trigger is not None
-    right_active = right_trigger is not None
+      left_active, right_active = active_dcam_sides(sm['carState'])
 
     calibration_rpy = (0.0, 0.0, 0.0)
     if sm.valid['liveCalibration'] and len(sm['liveCalibration'].rpyCalib) == 3:
@@ -319,8 +317,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       window_center_y,
       focal_length,
       light_sensor=ui_state.light_sensor,
-      left_trigger=left_trigger,
-      right_trigger=right_trigger,
     )
 
   def _get_dm_center_y(self, content_rect: rl.Rectangle) -> float:

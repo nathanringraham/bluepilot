@@ -6,10 +6,19 @@ from typing import Literal
 
 
 Side = Literal["left", "right"]
-DcamTrigger = Literal["blind_spot", "turn_signal"]
 
-QUARTER_SCREEN_WIDTH_RATIO = 0.50
-QUARTER_SCREEN_HEIGHT_RATIO = 0.50
+# A single active camera follows the broad side-window silhouette from the
+# original feature reference. When both sides are visible, the companion alpha
+# smoothly narrows both wedges into non-overlapping bookends. The tighter MICI
+# profile preserves a generous center corridor on comma 4's compact display.
+SINGLE_WEDGE_TOP_INSET = 0.31
+SINGLE_WEDGE_TOP_INSET_COMPACT = 0.40
+SINGLE_WEDGE_BOTTOM_INSET = 0.80
+DUAL_WEDGE_TOP_INSET = 0.52
+DUAL_WEDGE_TOP_INSET_COMPACT = 0.58
+DUAL_WEDGE_BOTTOM_INSET = 0.82
+DUAL_WEDGE_BOTTOM_INSET_COMPACT = 0.86
+COMPACT_CONTENT_HEIGHT = 300.0
 
 # Zoom into the outer third of the mirrored dcam image. Keeping this narrow
 # source region in the larger integrated view prioritizes the side window over
@@ -26,12 +35,6 @@ WINDOW_CENTER_MAX_Y = 0.56
 LOW_LIGHT_ENHANCEMENT_START = 70.0
 LOW_LIGHT_ENHANCEMENT_FULL = 20.0
 
-TRIGGER_BADGE_DIAMETER_RATIO = 0.25
-TRIGGER_BADGE_MIN_DIAMETER = 24.0
-TRIGGER_BADGE_MAX_DIAMETER = 68.0
-TRIGGER_BADGE_MARGIN_RATIO = 0.035
-
-
 @dataclass(frozen=True)
 class Region:
   x: float
@@ -42,19 +45,10 @@ class Region:
 
 def active_dcam_sides(car_state) -> tuple[bool, bool]:
   """Return left/right activation without coupling to either warning toggle."""
-  left_trigger, right_trigger = active_dcam_triggers(car_state)
-  return left_trigger is not None, right_trigger is not None
-
-
-def active_dcam_triggers(car_state) -> tuple[DcamTrigger | None, DcamTrigger | None]:
-  """Resolve the reason for each crop, prioritizing the safety-critical BLIS alert."""
-  left_trigger: DcamTrigger | None = (
-    "blind_spot" if car_state.leftBlindspot else "turn_signal" if car_state.leftBlinker else None
+  return (
+    car_state.leftBlinker or car_state.leftBlindspot,
+    car_state.rightBlinker or car_state.rightBlindspot,
   )
-  right_trigger: DcamTrigger | None = (
-    "blind_spot" if car_state.rightBlindspot else "turn_signal" if car_state.rightBlinker else None
-  )
-  return left_trigger, right_trigger
 
 
 def ease_visibility_alpha(alpha: float) -> float:
@@ -63,27 +57,29 @@ def ease_visibility_alpha(alpha: float) -> float:
   return alpha * alpha * (3.0 - 2.0 * alpha)
 
 
-def panel_region(content: Region, side: Side) -> Region:
-  """Fill the applicable upper quadrant with a borderless integrated crop."""
-  width = content.width * QUARTER_SCREEN_WIDTH_RATIO
-  height = content.height * QUARTER_SCREEN_HEIGHT_RATIO
-  x = content.x if side == "left" else content.x + content.width - width
-  return Region(x, content.y, width, height)
+def wedge_insets(content: Region, companion_alpha: float) -> tuple[float, float]:
+  """Return top/bottom outer-edge insets for a side camera wedge.
+
+  ``companion_alpha`` makes the active side contract continuously while the
+  other camera fades in, rather than jumping between single and dual layouts.
+  """
+  compact = content.height <= COMPACT_CONTENT_HEIGHT
+  single_top = SINGLE_WEDGE_TOP_INSET_COMPACT if compact else SINGLE_WEDGE_TOP_INSET
+  dual_top = DUAL_WEDGE_TOP_INSET_COMPACT if compact else DUAL_WEDGE_TOP_INSET
+  dual_bottom = DUAL_WEDGE_BOTTOM_INSET_COMPACT if compact else DUAL_WEDGE_BOTTOM_INSET
+  mix = ease_visibility_alpha(companion_alpha)
+  return (
+    single_top + (dual_top - single_top) * mix,
+    SINGLE_WEDGE_BOTTOM_INSET + (dual_bottom - SINGLE_WEDGE_BOTTOM_INSET) * mix,
+  )
 
 
-def trigger_badge_region(panel: Region) -> Region:
-  """Scale and place a compact trigger badge inside a crop's lower-right corner."""
-  diameter = min(
-    TRIGGER_BADGE_MAX_DIAMETER,
-    max(TRIGGER_BADGE_MIN_DIAMETER, panel.height * TRIGGER_BADGE_DIAMETER_RATIO),
-  )
-  margin = max(5.0, panel.height * TRIGGER_BADGE_MARGIN_RATIO)
-  return Region(
-    panel.x + panel.width - margin - diameter,
-    panel.y + panel.height - margin - diameter,
-    diameter,
-    diameter,
-  )
+def wedge_edge_x(content: Region, y_normalized: float, companion_alpha: float) -> float:
+  """Return the normalized inner edge of a right-side wedge at ``y``."""
+  top, bottom = wedge_insets(content, companion_alpha)
+  y = min(1.0, max(0.0, y_normalized))
+  smooth_y = y * y * (3.0 - 2.0 * y)
+  return top + (bottom - top) * smooth_y
 
 
 def source_crop(frame_width: float, frame_height: float, destination_width: float,

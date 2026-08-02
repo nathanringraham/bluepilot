@@ -4,13 +4,12 @@ from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   DEFAULT_WINDOW_CENTER_Y,
   Region,
   active_dcam_sides,
-  active_dcam_triggers,
   adaptive_window_center_y,
   ease_visibility_alpha,
   low_light_enhancement,
-  panel_region,
   source_crop,
-  trigger_badge_region,
+  wedge_edge_x,
+  wedge_insets,
 )
 
 
@@ -22,52 +21,38 @@ def test_active_dcam_sides_are_independent() -> None:
   assert active_dcam_sides(state) == (True, False)
 
 
-def test_blis_badge_takes_priority_over_turn_signal() -> None:
-  state = SimpleNamespace(leftBlinker=True, rightBlinker=True, leftBlindspot=True, rightBlindspot=False)
-  assert active_dcam_triggers(state) == ("blind_spot", "turn_signal")
-
-  state = SimpleNamespace(leftBlinker=False, rightBlinker=False, leftBlindspot=False, rightBlindspot=False)
-  assert active_dcam_triggers(state) == (None, None)
-
-
-def test_crops_fill_exact_upper_quadrants() -> None:
+def test_single_camera_follows_the_reference_side_wedge() -> None:
   content = Region(30, 30, 2100, 1020)
-  left = panel_region(content, "left")
-  right = panel_region(content, "right")
+  top, bottom = wedge_insets(content, 0.0)
 
-  assert left.x == content.x
-  assert left.x + left.width == right.x
-  assert right.x + right.width == content.x + content.width
-  assert left.y == right.y
-  assert left.y == content.y
-  assert left.width == content.width / 2
-  assert left.height == content.height / 2
-  assert left.height == right.height
-  assert left.width * left.height == content.width * content.height / 4
+  assert top == 0.31
+  assert bottom == 0.80
+  assert wedge_edge_x(content, 0.0, 0.0) == top
+  assert top < wedge_edge_x(content, 0.5, 0.0) < bottom
+  assert wedge_edge_x(content, 1.0, 0.0) == bottom
 
 
-def test_comma_four_panels_scale_to_the_compact_layout() -> None:
+def test_comma_four_dual_wedges_have_a_center_gap_at_every_height() -> None:
   # Native 536x240 screen minus MICI's fixed 60px side-control strip.
   content = Region(0, 0, 476, 240)
-  left = panel_region(content, "left")
-  right = panel_region(content, "right")
+  top, bottom = wedge_insets(content, 1.0)
 
-  assert left.width == 238
-  assert left.height == 120
-  assert left.y == right.y
-  assert left.x >= content.x
-  assert right.x + right.width <= content.x + content.width
+  assert top == 0.58
+  assert bottom == 0.86
+  for y in (0.0, 0.25, 0.5, 0.75, 1.0):
+    right_inner_edge = wedge_edge_x(content, y, 1.0)
+    left_inner_edge = 1.0 - right_inner_edge
+    assert left_inner_edge < right_inner_edge
 
 
-def test_trigger_badges_scale_and_stay_inside_each_popup() -> None:
-  for panel in (Region(100, 200, 1050, 510), Region(10, 20, 238, 120)):
-    badge = trigger_badge_region(panel)
-    assert 24 <= badge.width <= 68
-    assert badge.width == badge.height
-    assert panel.x < badge.x < panel.x + panel.width
-    assert panel.y < badge.y < panel.y + panel.height
-    assert badge.x + badge.width < panel.x + panel.width
-    assert badge.y + badge.height < panel.y + panel.height
+def test_companion_fade_continuously_contracts_each_wedge() -> None:
+  content = Region(30, 30, 2100, 1020)
+  single = wedge_insets(content, 0.0)
+  transitioning = wedge_insets(content, 0.5)
+  dual = wedge_insets(content, 1.0)
+
+  assert single[0] < transitioning[0] < dual[0]
+  assert single[1] < transitioning[1] < dual[1]
 
 
 def test_visibility_easing_is_clamped_and_smooth() -> None:
