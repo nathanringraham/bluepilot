@@ -33,8 +33,6 @@ FADE_IN_RC = 0.12
 FADE_OUT_RC = 0.22
 LOW_LIGHT_RC = 0.80
 VISIBLE_ALPHA_THRESHOLD = 0.01
-FORD_BLUE = (0, 52, 120)
-FORD_ACCENT_BLUE = (0, 174, 239)
 TRIGGER_TEXTURE_SIZE = 64
 
 
@@ -60,15 +58,11 @@ def _with_crop_effects(fragment_shader: str) -> str:
   return f"{body}{effects}}}{trailing}"
 
 
-def panel_rect(content_rect: rl.Rectangle, side: Side, left_inset: float = 0.0,
-               right_inset: float = 0.0, left_scc_stack: bool = False) -> rl.Rectangle:
-  """Place a crop at the edge while reserving the center for model overlays."""
+def panel_rect(content_rect: rl.Rectangle, side: Side) -> rl.Rectangle:
+  """Fill the applicable upper quadrant with a borderless integrated crop."""
   region = panel_region(
     Region(content_rect.x, content_rect.y, content_rect.width, content_rect.height),
     side,
-    left_inset,
-    right_inset,
-    left_scc_stack,
   )
   return rl.Rectangle(region.x, region.y, region.width, region.height)
 
@@ -141,9 +135,7 @@ class _CroppedDcamMixin:
 
   def render_crops(self, content_rect: rl.Rectangle, left_active: bool, right_active: bool,
                    calibration_rpy: tuple[float, float, float], window_center_y: float,
-                   focal_length: float, left_inset: float = 0.0,
-                   right_inset: float = 0.0, light_sensor: float = -1.0,
-                   left_scc_stack: bool = False,
+                   focal_length: float, light_sensor: float = -1.0,
                    left_trigger: DcamTrigger | None = None,
                    right_trigger: DcamTrigger | None = None) -> None:
     # Do not advance the transition before the first usable frame; otherwise a
@@ -172,7 +164,7 @@ class _CroppedDcamMixin:
       alpha = side_alpha[side]
       if alpha <= VISIBLE_ALPHA_THRESHOLD:
         continue
-      destination = panel_rect(content_rect, side, left_inset, right_inset, left_scc_stack)
+      destination = panel_rect(content_rect, side)
       crop = source_crop(self.frame.width, self.frame.height, destination.width, destination.height, side,
                          calibration_rpy, self._window_center_y, focal_length)
       self._draw_crop(content_rect, destination, crop, alpha, low_light, side, self._side_trigger[side])
@@ -180,18 +172,6 @@ class _CroppedDcamMixin:
   def _draw_crop(self, content_rect: rl.Rectangle, destination: rl.Rectangle,
                  crop: Region, alpha: float, low_light: float, side: Side,
                  trigger: DcamTrigger | None) -> None:
-    border = min(6.0, max(2.0, destination.height * 0.025))
-    shadow = border + max(2.0, border * 0.65)
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(destination.x - shadow, destination.y - shadow,
-                   destination.width + 2 * shadow, destination.height + 2 * shadow),
-      0.10, 8, rl.Color(0, 0, 0, int(175 * alpha)),
-    )
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(destination.x - border, destination.y - border,
-                   destination.width + 2 * border, destination.height + 2 * border),
-      0.10, 8, rl.Color(*FORD_BLUE, int(245 * alpha)),
-    )
     rl.begin_scissor_mode(int(destination.x), int(destination.y),
                           int(destination.width), int(destination.height))
     # A negative source width mirrors only the selected side crop, matching the
@@ -219,9 +199,6 @@ class _CroppedDcamMixin:
     # Restore the parent's scissor rectangle for all subsequent UI renderers.
     rl.begin_scissor_mode(int(content_rect.x), int(content_rect.y),
                           int(content_rect.width), int(content_rect.height))
-    rl.draw_rectangle_rounded_lines_ex(
-      destination, 0.10, 8, max(1.0, border * 0.40), rl.Color(*FORD_ACCENT_BLUE, int(230 * alpha)),
-    )
     if trigger is not None:
       self._draw_trigger_badge(destination, side, trigger, alpha)
 
@@ -231,12 +208,7 @@ class _CroppedDcamMixin:
     rl.draw_circle_v(
       rl.Vector2(badge.x + badge.width / 2, badge.y + badge.height / 2),
       badge.width / 2,
-      rl.Color(5, 17, 31, int(220 * alpha)),
-    )
-    rl.draw_circle_lines_v(
-      rl.Vector2(badge.x + badge.width / 2, badge.y + badge.height / 2),
-      badge.width / 2,
-      rl.Color(*FORD_ACCENT_BLUE, int(245 * alpha)),
+      rl.Color(0, 0, 0, int(165 * alpha)),
     )
 
     texture = self._trigger_textures[(side, trigger)]

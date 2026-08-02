@@ -53,8 +53,6 @@ TORQUE_STRIP_GAP = 3       # Gap between strip bottom and gauge content top
 
 # Full screen reference for sidebar detection
 FULL_CONTENT_WIDTH = 2100.0
-DCAM_LEFT_UI_INSET = 175.0
-DCAM_RIGHT_DEV_UI_INSET = 230.0
 
 
 class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixin):
@@ -100,10 +98,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # never switches or replaces the forward road stream.
     self._cropped_dcam = self._child(CroppedDcamViewBP())
     self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
-    self._smart_cruise_enabled = (
-      self._bp_params.get_bool("SmartCruiseControlVision")
-      or self._bp_params.get_bool("SmartCruiseControlMap")
-    )
 
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
@@ -129,10 +123,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       # BluePilot: Rad Racer theme toggle
       self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
       self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
-      self._smart_cruise_enabled = (
-        self._bp_params.get_bool("SmartCruiseControlVision")
-        or self._bp_params.get_bool("SmartCruiseControlMap")
-      )
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
@@ -172,6 +162,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       self._render_rad_racer_scene(rect)
       return
 
+    # BluePilot: Integrated side-window view is a background quadrant. Model and
+    # HUD geometry render later so safety-critical path/lane/UI elements stay clear.
+    self._render_cropped_dcam(self._content_rect)
+
     # Render model (uses full content rect for camera-space overlays)
     self.model_renderer.render(self._content_rect)
 
@@ -197,10 +191,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
         self._content_rect.height,
       )
       self._confidence_ball.render(ball_rect)
-
-    # BluePilot: Side-window dcam crop is outside the center model corridor.
-    # Render it after model geometry but before the independent red edge overlay.
-    self._render_cropped_dcam(self._content_rect, ball_offset)
 
     # BluePilot: Draw blindspot screen edge indicators ON TOP of confidence ball backdrop
     # so the red safety warning is never obscured
@@ -270,11 +260,11 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # Sky, stars, skyline, roadside signs (behind the road)
     self._rad_racer_theme.render_background(content_rect, self.model_renderer)
 
+    # Integrated camera quadrant stays behind Rad Racer road/model geometry.
+    self._render_cropped_dcam(content_rect)
+
     # Green game road (ModelRendererBP handles the 8-bit styling internally)
     self.model_renderer.render(content_rect)
-
-    # Lane-change safety view stays available with the alternate visual theme.
-    self._render_cropped_dcam(content_rect, 0.0)
 
     # Blindspot red edges stay on — safety overlay
     self._draw_blindspot_screen_edges(content_rect, self.BLIND_SPOT_WIDTH)
@@ -297,7 +287,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     if not self._hide_onroad_border:
       self._draw_border(rect)
 
-  def _render_cropped_dcam(self, content_rect: rl.Rectangle, ball_offset: float) -> None:
+  def _render_cropped_dcam(self, content_rect: rl.Rectangle) -> None:
     """Render the requested side(s) without consuming either blindspot UI toggle."""
     if not self._cropped_dcam_enabled and not self._cropped_dcam.is_visible():
       return
@@ -321,11 +311,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       window_center_y = adaptive_window_center_y(driver_data.facePosition, driver_data.faceProb)
 
     focal_length = self.device_camera.dcam.focal_length if self.device_camera is not None else 567.0
-    right_inset = (
-      DCAM_RIGHT_DEV_UI_INSET
-      if ui_state.developer_ui in (DeveloperUiState.RIGHT, DeveloperUiState.BOTH)
-      else 0.0
-    )
     self._cropped_dcam.render_crops(
       content_rect,
       left_active,
@@ -333,10 +318,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       calibration_rpy,
       window_center_y,
       focal_length,
-      left_inset=max(DCAM_LEFT_UI_INSET, ball_offset),
-      right_inset=right_inset,
       light_sensor=ui_state.light_sensor,
-      left_scc_stack=self._smart_cruise_enabled,
       left_trigger=left_trigger,
       right_trigger=right_trigger,
     )

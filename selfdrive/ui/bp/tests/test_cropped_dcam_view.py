@@ -30,35 +30,37 @@ def test_blis_badge_takes_priority_over_turn_signal() -> None:
   assert active_dcam_triggers(state) == (None, None)
 
 
-def test_panels_leave_center_model_corridor_clear() -> None:
+def test_crops_fill_exact_upper_quadrants() -> None:
   content = Region(30, 30, 2100, 1020)
-  left = panel_region(content, "left", left_inset=175)
-  left_with_scc = panel_region(content, "left", left_inset=175, left_scc_stack=True)
-  right = panel_region(content, "right", right_inset=230)
+  left = panel_region(content, "left")
+  right = panel_region(content, "right")
 
-  assert left.x + left.width < content.x + content.width * 0.42
-  assert right.x > content.x + content.width * 0.58
+  assert left.x == content.x
+  assert left.x + left.width == right.x
+  assert right.x + right.width == content.x + content.width
   assert left.y == right.y
-  assert left_with_scc.y > right.y  # lower only when the SCC stack can occupy the upper-left area
+  assert left.y == content.y
+  assert left.width == content.width / 2
+  assert left.height == content.height / 2
   assert left.height == right.height
-  assert left.width <= 420
-  assert left.height <= 280
+  assert left.width * left.height == content.width * content.height / 4
 
 
 def test_comma_four_panels_scale_to_the_compact_layout() -> None:
-  content = Region(0, 0, 536, 240)
-  left = panel_region(content, "left", left_scc_stack=True)
+  # Native 536x240 screen minus MICI's fixed 60px side-control strip.
+  content = Region(0, 0, 476, 240)
+  left = panel_region(content, "left")
   right = panel_region(content, "right")
 
-  assert 110 <= left.width <= 125
-  assert 74 <= left.height <= 84
+  assert left.width == 238
+  assert left.height == 120
   assert left.y == right.y
   assert left.x >= content.x
   assert right.x + right.width <= content.x + content.width
 
 
 def test_trigger_badges_scale_and_stay_inside_each_popup() -> None:
-  for panel in (Region(100, 200, 420, 280), Region(10, 20, 123, 82)):
+  for panel in (Region(100, 200, 1050, 510), Region(10, 20, 238, 120)):
     badge = trigger_badge_region(panel)
     assert 24 <= badge.width <= 68
     assert badge.width == badge.height
@@ -100,12 +102,12 @@ def test_calibration_compensates_mount_pitch_yaw_and_roll() -> None:
 def test_route_installation_prioritizes_the_outer_window() -> None:
   # Route 0000000e--ddbe55853b: stable face and liveCalibration samples from segment 24.
   window_center_y = adaptive_window_center_y((0.198, 0.047), 0.96)
-  left = source_crop(1928, 1208, 420, 280, "left", (0.0001, 0.0691, 0.0038), window_center_y)
+  left = source_crop(1928, 1208, 1050, 510, "left", (0.0001, 0.0691, 0.0038), window_center_y)
 
   assert 0.43 < window_center_y < 0.46
   assert abs(left.width - 1928 * 0.34) < 0.01
   assert abs(left.x + left.width - 1928) < 0.01
-  assert 260 < left.y < 310
+  assert 320 < left.y < 360
 
 
 def test_face_landmark_adapts_and_clamps_window_height() -> None:

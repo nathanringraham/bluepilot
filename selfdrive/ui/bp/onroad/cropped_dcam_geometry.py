@@ -8,20 +8,12 @@ from typing import Literal
 Side = Literal["left", "right"]
 DcamTrigger = Literal["blind_spot", "turn_signal"]
 
-PANEL_WIDTH_RATIO = 0.23
-PANEL_ASPECT_RATIO = 1.5
-PANEL_MIN_WIDTH = 110.0
-PANEL_MAX_WIDTH = 420.0
-PANEL_MIN_HEIGHT = 74.0
-PANEL_MAX_HEIGHT = 280.0
-COMPACT_CONTENT_MAX_WIDTH = 1000.0
-COMPACT_PANEL_TOP_RATIO = 0.27
-PANEL_TOP_RATIO = 0.27
-LEFT_PANEL_SCC_TOP_RATIO = 0.43
+QUARTER_SCREEN_WIDTH_RATIO = 0.50
+QUARTER_SCREEN_HEIGHT_RATIO = 0.50
 
-# Zoom into the outer third of the mirrored dcam image. Keeping the destination
-# card unchanged while narrowing this source region prioritizes the side window
-# over the occupants and seats on the supported fisheye cameras.
+# Zoom into the outer third of the mirrored dcam image. Keeping this narrow
+# source region in the larger integrated view prioritizes the side window over
+# the occupants and seats on the supported fisheye cameras.
 CROP_WIDTH_RATIO = 0.34
 LEFT_RAW_CENTER_X = 0.83
 RIGHT_RAW_CENTER_X = 0.17
@@ -71,28 +63,16 @@ def ease_visibility_alpha(alpha: float) -> float:
   return alpha * alpha * (3.0 - 2.0 * alpha)
 
 
-def panel_region(content: Region, side: Side, left_inset: float = 0.0,
-                 right_inset: float = 0.0, left_scc_stack: bool = False) -> Region:
-  """Place a crop at the edge while reserving the center for model overlays."""
-  width = min(PANEL_MAX_WIDTH, max(PANEL_MIN_WIDTH, content.width * PANEL_WIDTH_RATIO))
-  height = min(PANEL_MAX_HEIGHT, max(PANEL_MIN_HEIGHT, width / PANEL_ASPECT_RATIO))
-  if content.width <= COMPACT_CONTENT_MAX_WIDTH:
-    top_ratio = COMPACT_PANEL_TOP_RATIO
-  else:
-    top_ratio = LEFT_PANEL_SCC_TOP_RATIO if side == "left" and left_scc_stack else PANEL_TOP_RATIO
-  top = content.y + content.height * top_ratio
-  margin = max(18.0, content.width * 0.012)
-
-  if side == "left":
-    x = content.x + margin + left_inset
-  else:
-    x = content.x + content.width - margin - right_inset - width
-
-  return Region(x, top, width, height)
+def panel_region(content: Region, side: Side) -> Region:
+  """Fill the applicable upper quadrant with a borderless integrated crop."""
+  width = content.width * QUARTER_SCREEN_WIDTH_RATIO
+  height = content.height * QUARTER_SCREEN_HEIGHT_RATIO
+  x = content.x if side == "left" else content.x + content.width - width
+  return Region(x, content.y, width, height)
 
 
 def trigger_badge_region(panel: Region) -> Region:
-  """Scale and place a compact trigger badge inside a popup's lower-right corner."""
+  """Scale and place a compact trigger badge inside a crop's lower-right corner."""
   diameter = min(
     TRIGGER_BADGE_MAX_DIAMETER,
     max(TRIGGER_BADGE_MIN_DIAMETER, panel.height * TRIGGER_BADGE_DIAMETER_RATIO),
