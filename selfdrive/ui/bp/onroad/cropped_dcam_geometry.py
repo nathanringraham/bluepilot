@@ -26,10 +26,10 @@ COMPACT_CONTENT_HEIGHT = 300.0
 CROP_WIDTH_RATIO = 0.34
 LEFT_RAW_CENTER_X = 0.83
 RIGHT_RAW_CENTER_X = 0.17
-DEFAULT_WINDOW_CENTER_Y = 0.46
-WINDOW_CENTER_FACE_OFFSET_Y = 0.08
-WINDOW_CENTER_MIN_Y = 0.40
-WINDOW_CENTER_MAX_Y = 0.56
+DEFAULT_WINDOW_CENTER_Y = 0.51
+WINDOW_CENTER_FACE_OFFSET_Y = 0.13
+WINDOW_CENTER_MIN_Y = 0.45
+WINDOW_CENTER_MAX_Y = 0.63
 
 # ui_state.light_sensor is 100 in bright light and approaches zero in darkness.
 LOW_LIGHT_ENHANCEMENT_START = 70.0
@@ -78,14 +78,27 @@ def wedge_edge_x(content: Region, y_normalized: float, companion_alpha: float) -
   """Return the normalized inner edge of a right-side wedge at ``y``."""
   top, bottom = wedge_insets(content, companion_alpha)
   y = min(1.0, max(0.0, y_normalized))
-  smooth_y = y * y * (3.0 - 2.0 * y)
-  return top + (bottom - top) * smooth_y
+  return top + (bottom - top) * y
+
+
+def wedge_canvas_region(content: Region, side: Side, companion_alpha: float) -> Region:
+  """Bound a wedge so its broad top edge receives the complete source crop."""
+  top, _ = wedge_insets(content, companion_alpha)
+  width = content.width * (1.0 - top)
+  x = content.x if side == "left" else content.x + content.width - width
+  return Region(x, content.y, width, content.height)
+
+
+def wedge_local_insets(content: Region, companion_alpha: float) -> tuple[float, float]:
+  """Convert full-content wedge insets into the wedge canvas coordinate space."""
+  top, bottom = wedge_insets(content, companion_alpha)
+  return 0.0, (bottom - top) / (1.0 - top)
 
 
 def source_crop(frame_width: float, frame_height: float, destination_width: float,
                 destination_height: float, side: Side,
                 calibration_rpy: tuple[float, float, float],
-                window_center_y: float = DEFAULT_WINDOW_CENTER_Y,
+                window_center_y: float | None = None,
                 focal_length: float = 567.0) -> Region:
   """Calculate a calibration-aware raw dcam crop.
 
@@ -109,9 +122,14 @@ def source_crop(frame_width: float, frame_height: float, destination_width: floa
   raw_center_x = LEFT_RAW_CENTER_X if side == "left" else RIGHT_RAW_CENTER_X
   raw_center_x += focal_length * tan(yaw) / frame_width
 
-  # Project mount pitch and roll into the raw dcam image. Roll moves the two
-  # sides in opposite vertical directions around the optical center.
-  center_y = window_center_y - focal_length * tan(pitch) / frame_height
+  # A detected face is already expressed in raw dcam coordinates, so it
+  # inherently accounts for device pitch. Only project liveCalibration pitch
+  # when the landmark is unavailable; applying both shifted the crop into the
+  # headliner on pitched installations. Roll still moves the two sides in
+  # opposite vertical directions around the optical center.
+  center_y = window_center_y
+  if center_y is None:
+    center_y = DEFAULT_WINDOW_CENTER_Y - focal_length * tan(pitch) / frame_height
   center_y += (raw_center_x - 0.5) * (frame_width / frame_height) * tan(roll)
 
   center_x_px = raw_center_x * frame_width
@@ -122,10 +140,10 @@ def source_crop(frame_width: float, frame_height: float, destination_width: floa
 
 
 def adaptive_window_center_y(face_position: tuple[float, float] | list[float] | None,
-                             face_prob: float) -> float:
+                             face_prob: float) -> float | None:
   """Use the driver's face as a stable per-installation vertical landmark."""
   if face_prob <= 0.5 or face_position is None or len(face_position) != 2:
-    return DEFAULT_WINDOW_CENTER_Y
+    return None
 
   face_x, face_y = face_position
   # Same inexpensive raw-dcam approximation used by DriverCameraDialog.

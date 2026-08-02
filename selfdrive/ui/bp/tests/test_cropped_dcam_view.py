@@ -1,15 +1,16 @@
 from types import SimpleNamespace
 
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
-  DEFAULT_WINDOW_CENTER_Y,
   Region,
   active_dcam_sides,
   adaptive_window_center_y,
   ease_visibility_alpha,
   low_light_enhancement,
   source_crop,
+  wedge_canvas_region,
   wedge_edge_x,
   wedge_insets,
+  wedge_local_insets,
 )
 
 
@@ -28,8 +29,22 @@ def test_single_camera_follows_the_reference_side_wedge() -> None:
   assert top == 0.31
   assert bottom == 0.80
   assert wedge_edge_x(content, 0.0, 0.0) == top
-  assert top < wedge_edge_x(content, 0.5, 0.0) < bottom
+  assert wedge_edge_x(content, 0.5, 0.0) == (top + bottom) / 2
   assert wedge_edge_x(content, 1.0, 0.0) == bottom
+
+
+def test_wedge_canvas_maps_the_complete_crop_across_its_top_edge() -> None:
+  content = Region(30, 30, 2100, 1020)
+  left = wedge_canvas_region(content, "left", 0.0)
+  right = wedge_canvas_region(content, "right", 0.0)
+  local_top, local_bottom = wedge_local_insets(content, 0.0)
+
+  assert left.x == content.x
+  assert right.x + right.width == content.x + content.width
+  assert left.width == right.width == content.width * 0.69
+  assert left.height == right.height == content.height
+  assert local_top == 0.0
+  assert 0.70 < local_bottom < 0.72
 
 
 def test_comma_four_dual_wedges_have_a_center_gap_at_every_height() -> None:
@@ -84,21 +99,36 @@ def test_calibration_compensates_mount_pitch_yaw_and_roll() -> None:
   assert rolled_right.y < base_right.y  # roll moves opposite sides in opposite directions
 
 
+def test_raw_face_landmark_is_not_pitch_corrected_twice() -> None:
+  fallback = source_crop(1928, 1208, 1449, 1020, "left", (0.0, 0.07, 0.0))
+  neutral_fallback = source_crop(1928, 1208, 1449, 1020, "left", (0.0, 0.0, 0.0))
+  detected = source_crop(1928, 1208, 1449, 1020, "left", (0.0, 0.07, 0.0), 0.50)
+  neutral_detected = source_crop(1928, 1208, 1449, 1020, "left", (0.0, 0.0, 0.0), 0.50)
+
+  assert fallback.y < neutral_fallback.y
+  assert detected.y == neutral_detected.y
+
+
 def test_route_installation_prioritizes_the_outer_window() -> None:
   # Route 0000000e--ddbe55853b: stable face and liveCalibration samples from segment 24.
   window_center_y = adaptive_window_center_y((0.198, 0.047), 0.96)
-  left = source_crop(1928, 1208, 1050, 510, "left", (0.0001, 0.0691, 0.0038), window_center_y)
+  content = Region(30, 30, 2100, 1020)
+  destination = wedge_canvas_region(content, "left", 0.0)
+  left = source_crop(1928, 1208, destination.width, destination.height,
+                     "left", (0.0001, 0.0691, 0.0038), window_center_y)
 
-  assert 0.43 < window_center_y < 0.46
+  assert window_center_y is not None
+  assert 0.49 < window_center_y < 0.51
   assert abs(left.width - 1928 * 0.34) < 0.01
   assert abs(left.x + left.width - 1928) < 0.01
-  assert 320 < left.y < 360
+  assert 360 < left.y < 380
+  assert 820 < left.y + left.height < 840
 
 
 def test_face_landmark_adapts_and_clamps_window_height() -> None:
-  assert adaptive_window_center_y(None, 0.0) == DEFAULT_WINDOW_CENTER_Y
-  assert adaptive_window_center_y((0.0, -10.0), 1.0) == 0.40
-  assert adaptive_window_center_y((0.0, 10.0), 1.0) == 0.56
+  assert adaptive_window_center_y(None, 0.0) is None
+  assert adaptive_window_center_y((0.0, -10.0), 1.0) == 0.45
+  assert adaptive_window_center_y((0.0, 10.0), 1.0) == 0.63
 
 
 def test_low_light_enhancement_is_adaptive_and_safe() -> None:

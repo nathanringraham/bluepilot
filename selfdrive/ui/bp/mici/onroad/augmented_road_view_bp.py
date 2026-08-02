@@ -10,7 +10,6 @@ from openpilot.selfdrive.ui.bp.mici.onroad.cameraview_bp import MiciCameraViewBP
 from openpilot.selfdrive.ui.bp.mici.onroad.model_renderer_bp import ModelRendererBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
-  DEFAULT_WINDOW_CENTER_Y,
   active_dcam_sides,
   adaptive_window_center_y,
 )
@@ -244,7 +243,7 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     if sm.valid['liveCalibration'] and len(sm['liveCalibration'].rpyCalib) == 3:
       calibration_rpy = tuple(sm['liveCalibration'].rpyCalib)
 
-    window_center_y = DEFAULT_WINDOW_CENTER_Y
+    window_center_y = None
     if sm.valid['driverStateV2']:
       driver_state = sm['driverStateV2']
       is_rhd = driver_state.wheelOnRightProb > 0.5

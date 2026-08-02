@@ -21,7 +21,8 @@ from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   ease_visibility_alpha,
   low_light_enhancement,
   source_crop,
-  wedge_insets,
+  wedge_canvas_region,
+  wedge_local_insets,
 )
 from openpilot.system.hardware import TICI
 from openpilot.system.ui.lib.application import gui_app
@@ -56,8 +57,7 @@ uniform float cropMaskSide;"""
       cropColor = mix(vec3(cropEnhancedLuma), cropColor, 1.0 + 0.06 * cropLowLight);
       vec2 cropMaskUv = (gl_FragCoord.xy - cropMaskViewport.xy) / cropMaskViewport.zw;
       float cropMaskY = 1.0 - clamp(cropMaskUv.y, 0.0, 1.0);
-      float cropMaskCurve = cropMaskY * cropMaskY * (3.0 - 2.0 * cropMaskY);
-      float cropMaskEdge = mix(cropWedgeInsets.x, cropWedgeInsets.y, cropMaskCurve);
+      float cropMaskEdge = mix(cropWedgeInsets.x, cropWedgeInsets.y, cropMaskY);
       float cropMaskFeather = 2.0 / max(cropMaskViewport.z, 1.0);
       float cropMaskDistance = cropMaskSide > 0.0
         ? cropMaskUv.x - cropMaskEdge
@@ -68,9 +68,15 @@ uniform float cropMaskSide;"""
   return f"{body}{effects}}}{trailing}"
 
 
-def wedge_canvas_rect(content_rect: rl.Rectangle) -> rl.Rectangle:
-  """Use the road content as the canvas; the shader cuts out the side wedge."""
-  return rl.Rectangle(content_rect.x, content_rect.y, content_rect.width, content_rect.height)
+def wedge_canvas_rect(content_rect: rl.Rectangle, side: Side,
+                      companion_alpha: float) -> rl.Rectangle:
+  """Map the full source crop across the visible wedge's bounding rectangle."""
+  region = wedge_canvas_region(
+    Region(content_rect.x, content_rect.y, content_rect.width, content_rect.height),
+    side,
+    companion_alpha,
+  )
+  return rl.Rectangle(region.x, region.y, region.width, region.height)
 
 
 class _CroppedDcamMixin:
@@ -82,6 +88,7 @@ class _CroppedDcamMixin:
   def __init__(self):
     super().__init__("camerad", VisionStreamType.VISION_STREAM_DRIVER)
     self._window_center_y = DEFAULT_WINDOW_CENTER_Y
+    self._has_window_landmark = False
     self._side_alpha = {
       "left": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
       "right": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
@@ -130,7 +137,7 @@ class _CroppedDcamMixin:
     return self.frame is not None
 
   def render_crops(self, content_rect: rl.Rectangle, left_active: bool, right_active: bool,
-                   calibration_rpy: tuple[float, float, float], window_center_y: float,
+                   calibration_rpy: tuple[float, float, float], window_center_y: float | None,
                    focal_length: float, light_sensor: float = -1.0) -> None:
     # Do not advance the transition before the first usable frame; otherwise a
     # newly connected stream could pop in after the fade has already completed.
@@ -146,21 +153,28 @@ class _CroppedDcamMixin:
 
     # Smooth driver-model landmark changes so a marginal face detection cannot
     # make the safety view jump between frames.
-    self._window_center_y = 0.95 * self._window_center_y + 0.05 * window_center_y
+    if window_center_y is not None:
+      self._window_center_y = 0.95 * self._window_center_y + 0.05 * window_center_y
+      self._has_window_landmark = True
     low_light = self._low_light_filter.update(low_light_enhancement(light_sensor))
     for side in ("left", "right"):
       alpha = side_alpha[side]
       if alpha <= VISIBLE_ALPHA_THRESHOLD:
         continue
-      destination = wedge_canvas_rect(content_rect)
-      crop = source_crop(self.frame.width, self.frame.height, destination.width, destination.height, side,
-                         calibration_rpy, self._window_center_y, focal_length)
       companion_side = "right" if side == "left" else "left"
-      self._draw_crop(content_rect, destination, crop, alpha, low_light, side, side_alpha[companion_side])
+      companion_alpha = side_alpha[companion_side]
+      destination = wedge_canvas_rect(content_rect, side, companion_alpha)
+      crop = source_crop(self.frame.width, self.frame.height, destination.width, destination.height, side,
+                         calibration_rpy, self._window_center_y if self._has_window_landmark else None, focal_length)
+      mask_insets = wedge_local_insets(
+        Region(content_rect.x, content_rect.y, content_rect.width, content_rect.height),
+        companion_alpha,
+      )
+      self._draw_crop(content_rect, destination, crop, alpha, low_light, side, mask_insets)
 
   def _draw_crop(self, content_rect: rl.Rectangle, destination: rl.Rectangle,
                  crop: Region, alpha: float, low_light: float, side: Side,
-                 companion_alpha: float) -> None:
+                 mask_insets: tuple[float, float]) -> None:
     rl.begin_scissor_mode(int(destination.x), int(destination.y),
                           int(destination.width), int(destination.height))
     # A negative source width mirrors only the selected side crop, matching the
@@ -178,10 +192,7 @@ class _CroppedDcamMixin:
     self._crop_mask_viewport_value[1] = render_height - (destination.y + destination.height) * scale_y
     self._crop_mask_viewport_value[2] = destination.width * scale_x
     self._crop_mask_viewport_value[3] = destination.height * scale_y
-    top_inset, bottom_inset = wedge_insets(
-      Region(destination.x, destination.y, destination.width, destination.height),
-      companion_alpha,
-    )
+    top_inset, bottom_inset = mask_insets
     self._crop_wedge_insets_value[0] = top_inset
     self._crop_wedge_insets_value[1] = bottom_inset
     self._crop_mask_side_value[0] = -1.0 if side == "left" else 1.0
