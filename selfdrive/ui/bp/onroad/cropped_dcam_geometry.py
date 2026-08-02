@@ -6,6 +6,7 @@ from typing import Literal
 
 
 Side = Literal["left", "right"]
+DcamTrigger = Literal["blind_spot", "turn_signal"]
 
 PANEL_WIDTH_RATIO = 0.23
 PANEL_ASPECT_RATIO = 1.5
@@ -33,6 +34,11 @@ WINDOW_CENTER_MAX_Y = 0.56
 LOW_LIGHT_ENHANCEMENT_START = 70.0
 LOW_LIGHT_ENHANCEMENT_FULL = 20.0
 
+TRIGGER_BADGE_DIAMETER_RATIO = 0.25
+TRIGGER_BADGE_MIN_DIAMETER = 24.0
+TRIGGER_BADGE_MAX_DIAMETER = 68.0
+TRIGGER_BADGE_MARGIN_RATIO = 0.035
+
 
 @dataclass(frozen=True)
 class Region:
@@ -44,9 +50,19 @@ class Region:
 
 def active_dcam_sides(car_state) -> tuple[bool, bool]:
   """Return left/right activation without coupling to either warning toggle."""
-  left_active = bool(car_state.leftBlinker or car_state.leftBlindspot)
-  right_active = bool(car_state.rightBlinker or car_state.rightBlindspot)
-  return left_active, right_active
+  left_trigger, right_trigger = active_dcam_triggers(car_state)
+  return left_trigger is not None, right_trigger is not None
+
+
+def active_dcam_triggers(car_state) -> tuple[DcamTrigger | None, DcamTrigger | None]:
+  """Resolve the reason for each crop, prioritizing the safety-critical BLIS alert."""
+  left_trigger: DcamTrigger | None = (
+    "blind_spot" if car_state.leftBlindspot else "turn_signal" if car_state.leftBlinker else None
+  )
+  right_trigger: DcamTrigger | None = (
+    "blind_spot" if car_state.rightBlindspot else "turn_signal" if car_state.rightBlinker else None
+  )
+  return left_trigger, right_trigger
 
 
 def ease_visibility_alpha(alpha: float) -> float:
@@ -73,6 +89,21 @@ def panel_region(content: Region, side: Side, left_inset: float = 0.0,
     x = content.x + content.width - margin - right_inset - width
 
   return Region(x, top, width, height)
+
+
+def trigger_badge_region(panel: Region) -> Region:
+  """Scale and place a compact trigger badge inside a popup's lower-right corner."""
+  diameter = min(
+    TRIGGER_BADGE_MAX_DIAMETER,
+    max(TRIGGER_BADGE_MIN_DIAMETER, panel.height * TRIGGER_BADGE_DIAMETER_RATIO),
+  )
+  margin = max(5.0, panel.height * TRIGGER_BADGE_MARGIN_RATIO)
+  return Region(
+    panel.x + panel.width - margin - diameter,
+    panel.y + panel.height - margin - diameter,
+    diameter,
+    diameter,
+  )
 
 
 def source_crop(frame_width: float, frame_height: float, destination_width: float,

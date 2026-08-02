@@ -16,12 +16,14 @@ from openpilot.selfdrive.ui.onroad.cameraview import (
 )
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   DEFAULT_WINDOW_CENTER_Y,
+  DcamTrigger,
   Region,
   Side,
   ease_visibility_alpha,
   low_light_enhancement,
   panel_region,
   source_crop,
+  trigger_badge_region,
 )
 from openpilot.system.hardware import TICI
 from openpilot.system.ui.lib.application import gui_app
@@ -31,6 +33,9 @@ FADE_IN_RC = 0.12
 FADE_OUT_RC = 0.22
 LOW_LIGHT_RC = 0.80
 VISIBLE_ALPHA_THRESHOLD = 0.01
+FORD_BLUE = (0, 52, 120)
+FORD_ACCENT_BLUE = (0, 174, 239)
+TRIGGER_TEXTURE_SIZE = 64
 
 
 def _with_crop_effects(fragment_shader: str) -> str:
@@ -82,6 +87,21 @@ class _CroppedDcamMixin:
       "right": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
     }
     self._low_light_filter = FirstOrderFilter(0.0, LOW_LIGHT_RC, 1.0 / gui_app.target_fps)
+    self._side_trigger: dict[Side, DcamTrigger | None] = {"left": None, "right": None}
+    self._trigger_textures = {
+      ("left", "blind_spot"): gui_app.texture(
+        "icons_mici/onroad/blind_spot_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE,
+      ),
+      ("right", "blind_spot"): gui_app.texture(
+        "icons_mici/onroad/blind_spot_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE, flip_x=True,
+      ),
+      ("left", "turn_signal"): gui_app.texture(
+        "icons_mici/onroad/turn_signal_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE,
+      ),
+      ("right", "turn_signal"): gui_app.texture(
+        "icons_mici/onroad/turn_signal_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE, flip_x=True,
+      ),
+    }
 
     # The native shaders output opaque camera pixels. Replace only this child
     # view's shader with an alpha-aware equivalent so the road view underneath
@@ -123,7 +143,9 @@ class _CroppedDcamMixin:
                    calibration_rpy: tuple[float, float, float], window_center_y: float,
                    focal_length: float, left_inset: float = 0.0,
                    right_inset: float = 0.0, light_sensor: float = -1.0,
-                   left_scc_stack: bool = False) -> None:
+                   left_scc_stack: bool = False,
+                   left_trigger: DcamTrigger | None = None,
+                   right_trigger: DcamTrigger | None = None) -> None:
     # Do not advance the transition before the first usable frame; otherwise a
     # newly connected stream could pop in after the fade has already completed.
     if not self.update_frame() or self.frame is None:
@@ -133,6 +155,12 @@ class _CroppedDcamMixin:
       "left": self._update_side_alpha("left", left_active),
       "right": self._update_side_alpha("right", right_active),
     }
+    current_triggers = {"left": left_trigger, "right": right_trigger}
+    for side in ("left", "right"):
+      if current_triggers[side] is not None:
+        self._side_trigger[side] = current_triggers[side]
+      elif side_alpha[side] <= VISIBLE_ALPHA_THRESHOLD:
+        self._side_trigger[side] = None
     if max(side_alpha.values()) <= VISIBLE_ALPHA_THRESHOLD:
       return
 
@@ -147,15 +175,22 @@ class _CroppedDcamMixin:
       destination = panel_rect(content_rect, side, left_inset, right_inset, left_scc_stack)
       crop = source_crop(self.frame.width, self.frame.height, destination.width, destination.height, side,
                          calibration_rpy, self._window_center_y, focal_length)
-      self._draw_crop(content_rect, destination, crop, alpha, low_light)
+      self._draw_crop(content_rect, destination, crop, alpha, low_light, side, self._side_trigger[side])
 
   def _draw_crop(self, content_rect: rl.Rectangle, destination: rl.Rectangle,
-                 crop: Region, alpha: float, low_light: float) -> None:
-    border = 4.0
+                 crop: Region, alpha: float, low_light: float, side: Side,
+                 trigger: DcamTrigger | None) -> None:
+    border = min(6.0, max(2.0, destination.height * 0.025))
+    shadow = border + max(2.0, border * 0.65)
+    rl.draw_rectangle_rounded(
+      rl.Rectangle(destination.x - shadow, destination.y - shadow,
+                   destination.width + 2 * shadow, destination.height + 2 * shadow),
+      0.10, 8, rl.Color(0, 0, 0, int(175 * alpha)),
+    )
     rl.draw_rectangle_rounded(
       rl.Rectangle(destination.x - border, destination.y - border,
                    destination.width + 2 * border, destination.height + 2 * border),
-      0.10, 8, rl.Color(0, 0, 0, int(195 * alpha)),
+      0.10, 8, rl.Color(*FORD_BLUE, int(245 * alpha)),
     )
     rl.begin_scissor_mode(int(destination.x), int(destination.y),
                           int(destination.width), int(destination.height))
@@ -184,7 +219,34 @@ class _CroppedDcamMixin:
     # Restore the parent's scissor rectangle for all subsequent UI renderers.
     rl.begin_scissor_mode(int(content_rect.x), int(content_rect.y),
                           int(content_rect.width), int(content_rect.height))
-    rl.draw_rectangle_rounded_lines_ex(destination, 0.10, 8, 2.0, rl.Color(255, 255, 255, int(135 * alpha)))
+    rl.draw_rectangle_rounded_lines_ex(
+      destination, 0.10, 8, max(1.0, border * 0.40), rl.Color(*FORD_ACCENT_BLUE, int(230 * alpha)),
+    )
+    if trigger is not None:
+      self._draw_trigger_badge(destination, side, trigger, alpha)
+
+  def _draw_trigger_badge(self, destination: rl.Rectangle, side: Side,
+                          trigger: DcamTrigger, alpha: float) -> None:
+    badge = trigger_badge_region(Region(destination.x, destination.y, destination.width, destination.height))
+    rl.draw_circle_v(
+      rl.Vector2(badge.x + badge.width / 2, badge.y + badge.height / 2),
+      badge.width / 2,
+      rl.Color(5, 17, 31, int(220 * alpha)),
+    )
+    rl.draw_circle_lines_v(
+      rl.Vector2(badge.x + badge.width / 2, badge.y + badge.height / 2),
+      badge.width / 2,
+      rl.Color(*FORD_ACCENT_BLUE, int(245 * alpha)),
+    )
+
+    texture = self._trigger_textures[(side, trigger)]
+    icon_size = badge.width * 0.70
+    scale = icon_size / max(texture.width, texture.height)
+    pos = rl.Vector2(
+      badge.x + (badge.width - texture.width * scale) / 2,
+      badge.y + (badge.height - texture.height * scale) / 2,
+    )
+    rl.draw_texture_ex(texture, pos, 0.0, scale, rl.Color(255, 255, 255, int(255 * alpha)))
 
 
 class CroppedDcamViewBP(_CroppedDcamMixin, TiciCameraView):

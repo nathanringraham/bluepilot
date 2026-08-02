@@ -4,11 +4,13 @@ from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   DEFAULT_WINDOW_CENTER_Y,
   Region,
   active_dcam_sides,
+  active_dcam_triggers,
   adaptive_window_center_y,
   ease_visibility_alpha,
   low_light_enhancement,
   panel_region,
   source_crop,
+  trigger_badge_region,
 )
 
 
@@ -18,6 +20,14 @@ def test_active_dcam_sides_are_independent() -> None:
 
   state = SimpleNamespace(leftBlinker=False, rightBlinker=False, leftBlindspot=True, rightBlindspot=False)
   assert active_dcam_sides(state) == (True, False)
+
+
+def test_blis_badge_takes_priority_over_turn_signal() -> None:
+  state = SimpleNamespace(leftBlinker=True, rightBlinker=True, leftBlindspot=True, rightBlindspot=False)
+  assert active_dcam_triggers(state) == ("blind_spot", "turn_signal")
+
+  state = SimpleNamespace(leftBlinker=False, rightBlinker=False, leftBlindspot=False, rightBlindspot=False)
+  assert active_dcam_triggers(state) == (None, None)
 
 
 def test_panels_leave_center_model_corridor_clear() -> None:
@@ -45,6 +55,17 @@ def test_comma_four_panels_scale_to_the_compact_layout() -> None:
   assert left.y == right.y
   assert left.x >= content.x
   assert right.x + right.width <= content.x + content.width
+
+
+def test_trigger_badges_scale_and_stay_inside_each_popup() -> None:
+  for panel in (Region(100, 200, 420, 280), Region(10, 20, 123, 82)):
+    badge = trigger_badge_region(panel)
+    assert 24 <= badge.width <= 68
+    assert badge.width == badge.height
+    assert panel.x < badge.x < panel.x + panel.width
+    assert panel.y < badge.y < panel.y + panel.height
+    assert badge.x + badge.width < panel.x + panel.width
+    assert badge.y + badge.height < panel.y + panel.height
 
 
 def test_visibility_easing_is_clamped_and_smooth() -> None:
