@@ -180,7 +180,7 @@ class BluePilotLayout(Widget):
     # its own parameter and does not gate either existing blindspot renderer.
     self._cropped_dcam = toggle_item(
       lambda: tr("DCam Blindspot/Lane Change"),
-      lambda: tr("Show a cropped version of the Driver Camera when a car is detected in your blindspot or if your turn signal is active."),
+      lambda: tr("Show cropped dcam when turn signals or BLIS  are active"),
       initial_state=self._safe_get_bool(self._params, "BPCroppedDcam"),
       callback=lambda state: self._toggle_callback(state, "BPCroppedDcam"),
       icon="warning.png"

@@ -161,12 +161,12 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       self._render_rad_racer_scene(rect)
       return
 
-    # BluePilot: Integrated side-window view is a background quadrant. Model and
-    # HUD geometry render later so safety-critical path/lane/UI elements stay clear.
-    self._render_cropped_dcam(self._content_rect)
-
     # Render model (uses full content rect for camera-space overlays)
     self.model_renderer.render(self._content_rect)
+
+    # BluePilot: Side-window view intentionally covers model path/lane geometry,
+    # while the HUD, warnings, controls, alerts, and border remain above it.
+    self._render_cropped_dcam(self._content_rect)
 
     # SP fade overlay
     self.update_fade_out_bottom_overlay(self._content_rect)
@@ -259,11 +259,12 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # Sky, stars, skyline, roadside signs (behind the road)
     self._rad_racer_theme.render_background(content_rect, self.model_renderer)
 
-    # Integrated camera quadrant stays behind Rad Racer road/model geometry.
-    self._render_cropped_dcam(content_rect)
-
     # Green game road (ModelRendererBP handles the 8-bit styling internally)
     self.model_renderer.render(content_rect)
+
+    # BluePilot: Keep the dcam above the game road/model but below warnings,
+    # cluster controls, driver monitoring, alerts, and the outer border.
+    self._render_cropped_dcam(content_rect)
 
     # Blindspot red edges stay on — safety overlay
     self._draw_blindspot_screen_edges(content_rect, self.BLIND_SPOT_WIDTH)

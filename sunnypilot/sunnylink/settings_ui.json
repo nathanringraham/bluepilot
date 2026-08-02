@@ -2243,7 +2243,7 @@
           "key": "BPCroppedDcam",
           "widget": "toggle",
           "title": "[Visuals] DCam Blindspot/Lane Change",
-          "description": "Show a cropped version of the Driver Camera when a car is detected in your blindspot or if your turn signal is active."
+          "description": "Show cropped dcam when turn signals or BLIS  are active"
         },
         {
           "key": "ShowBrakeStatus",

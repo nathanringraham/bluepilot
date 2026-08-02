@@ -161,12 +161,12 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       self._model_renderer.prepare_projection(self._content_rect)
       self._rad_racer_theme.render_background(self._content_rect, self._model_renderer)
 
-    # BluePilot: Integrated crop is a background quadrant so model, HUD, and
-    # alerts remain unobstructed in the compact layout.
-    self._render_cropped_dcam()
-
     # Model overlays
     self._model_renderer.render(self._content_rect)
+
+    # BluePilot: Side-window view intentionally covers model path/lane geometry,
+    # while compact HUD controls, warnings, alerts, and the side panel stay above.
+    self._render_cropped_dcam()
 
     # BluePilot: Rad Racer sprites (ego + leads) over the road; no gauge cluster on MICI,
     # so the ego car anchors to the bottom edge of the content rect instead.
