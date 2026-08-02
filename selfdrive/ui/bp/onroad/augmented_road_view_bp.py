@@ -8,6 +8,7 @@ from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
 from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
+  DEFAULT_WINDOW_CENTER_Y,
   active_dcam_sides,
   adaptive_window_center_y,
 )
@@ -99,6 +100,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # never switches or replaces the forward road stream.
     self._cropped_dcam = self._child(CroppedDcamViewBP())
     self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
+    self._smart_cruise_enabled = (
+      self._bp_params.get_bool("SmartCruiseControlVision")
+      or self._bp_params.get_bool("SmartCruiseControlMap")
+    )
 
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
@@ -124,6 +129,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       # BluePilot: Rad Racer theme toggle
       self._rad_racer_active = self._bp_params.get_bool("BPRadRacerTheme")
       self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
+      self._smart_cruise_enabled = (
+        self._bp_params.get_bool("SmartCruiseControlVision")
+        or self._bp_params.get_bool("SmartCruiseControlMap")
+      )
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
@@ -302,7 +311,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     if sm.valid['liveCalibration'] and len(sm['liveCalibration'].rpyCalib) == 3:
       calibration_rpy = tuple(sm['liveCalibration'].rpyCalib)
 
-    window_center_y = 0.55
+    window_center_y = DEFAULT_WINDOW_CENTER_Y
     if sm.valid['driverStateV2']:
       driver_state = sm['driverStateV2']
       is_rhd = driver_state.wheelOnRightProb > 0.5
@@ -324,6 +333,8 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       focal_length,
       left_inset=max(DCAM_LEFT_UI_INSET, ball_offset),
       right_inset=right_inset,
+      light_sensor=ui_state.light_sensor,
+      left_scc_stack=self._smart_cruise_enabled,
     )
 
   def _get_dm_center_y(self, content_rect: rl.Rectangle) -> float:

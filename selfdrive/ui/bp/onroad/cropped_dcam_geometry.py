@@ -15,16 +15,23 @@ PANEL_MIN_HEIGHT = 74.0
 PANEL_MAX_HEIGHT = 280.0
 COMPACT_CONTENT_MAX_WIDTH = 1000.0
 COMPACT_PANEL_TOP_RATIO = 0.27
-LEFT_PANEL_TOP_RATIO = 0.43
-RIGHT_PANEL_TOP_RATIO = 0.27
+PANEL_TOP_RATIO = 0.27
+LEFT_PANEL_SCC_TOP_RATIO = 0.43
 
-# The outer 42% of the mirrored dcam image contains the applicable side
-# window and mirror on the supported fisheye cameras. A broad crop is
-# intentional: it tolerates different cabin widths and camera placements.
-CROP_WIDTH_RATIO = 0.42
-LEFT_RAW_CENTER_X = 0.79
-RIGHT_RAW_CENTER_X = 0.21
-DEFAULT_WINDOW_CENTER_Y = 0.55
+# Zoom into the outer third of the mirrored dcam image. Keeping the destination
+# card unchanged while narrowing this source region prioritizes the side window
+# over the occupants and seats on the supported fisheye cameras.
+CROP_WIDTH_RATIO = 0.34
+LEFT_RAW_CENTER_X = 0.83
+RIGHT_RAW_CENTER_X = 0.17
+DEFAULT_WINDOW_CENTER_Y = 0.46
+WINDOW_CENTER_FACE_OFFSET_Y = 0.08
+WINDOW_CENTER_MIN_Y = 0.40
+WINDOW_CENTER_MAX_Y = 0.56
+
+# ui_state.light_sensor is 100 in bright light and approaches zero in darkness.
+LOW_LIGHT_ENHANCEMENT_START = 70.0
+LOW_LIGHT_ENHANCEMENT_FULL = 20.0
 
 
 @dataclass(frozen=True)
@@ -49,14 +56,14 @@ def ease_visibility_alpha(alpha: float) -> float:
 
 
 def panel_region(content: Region, side: Side, left_inset: float = 0.0,
-                 right_inset: float = 0.0) -> Region:
+                 right_inset: float = 0.0, left_scc_stack: bool = False) -> Region:
   """Place a crop at the edge while reserving the center for model overlays."""
   width = min(PANEL_MAX_WIDTH, max(PANEL_MIN_WIDTH, content.width * PANEL_WIDTH_RATIO))
   height = min(PANEL_MAX_HEIGHT, max(PANEL_MIN_HEIGHT, width / PANEL_ASPECT_RATIO))
   if content.width <= COMPACT_CONTENT_MAX_WIDTH:
     top_ratio = COMPACT_PANEL_TOP_RATIO
   else:
-    top_ratio = LEFT_PANEL_TOP_RATIO if side == "left" else RIGHT_PANEL_TOP_RATIO
+    top_ratio = LEFT_PANEL_SCC_TOP_RATIO if side == "left" and left_scc_stack else PANEL_TOP_RATIO
   top = content.y + content.height * top_ratio
   margin = max(18.0, content.width * 0.012)
 
@@ -117,4 +124,14 @@ def adaptive_window_center_y(face_position: tuple[float, float] | list[float] | 
   # Same inexpensive raw-dcam approximation used by DriverCameraDialog.
   face_y_px = -135.0 + (504.0 + abs(face_x) * 112.0) + (1205.0 - abs(face_x) * 724.0) * face_y
   face_y_norm = face_y_px / 1208.0
-  return min(0.64, max(0.48, DEFAULT_WINDOW_CENTER_Y + 0.35 * (face_y_norm - 0.42)))
+  return min(WINDOW_CENTER_MAX_Y, max(WINDOW_CENTER_MIN_Y, face_y_norm + WINDOW_CENTER_FACE_OFFSET_Y))
+
+
+def low_light_enhancement(light_sensor: float) -> float:
+  """Return a smooth 0..1 shadow-lift strength from the existing UI light estimate."""
+  if not isfinite(light_sensor) or light_sensor < 0:
+    return 0.0
+
+  span = LOW_LIGHT_ENHANCEMENT_START - LOW_LIGHT_ENHANCEMENT_FULL
+  strength = (LOW_LIGHT_ENHANCEMENT_START - light_sensor) / span
+  return ease_visibility_alpha(strength)
