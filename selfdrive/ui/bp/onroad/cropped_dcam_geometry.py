@@ -34,6 +34,7 @@ WINDOW_CENTER_MAX_Y = 0.63
 # ui_state.light_sensor is 100 in bright light and approaches zero in darkness.
 LOW_LIGHT_ENHANCEMENT_START = 70.0
 LOW_LIGHT_ENHANCEMENT_FULL = 20.0
+POST_TRIGGER_HOLD_SECONDS = 1.0
 
 @dataclass(frozen=True)
 class Region:
@@ -41,6 +42,25 @@ class Region:
   y: float
   width: float
   height: float
+
+
+@dataclass
+class PostTriggerHold:
+  """Keep a trigger asserted briefly after its falling edge."""
+  hold_seconds: float = POST_TRIGGER_HOLD_SECONDS
+  _input_active: bool = False
+  _hold_until: float = 0.0
+
+  def update(self, active: bool, now: float) -> bool:
+    if active:
+      self._input_active = True
+      return True
+
+    if self._input_active:
+      self._input_active = False
+      self._hold_until = now + self.hold_seconds
+
+    return now < self._hold_until
 
 
 def active_dcam_sides(car_state) -> tuple[bool, bool]:

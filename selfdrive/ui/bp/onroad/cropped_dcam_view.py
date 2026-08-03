@@ -1,5 +1,7 @@
 """BluePilot cropped driver-camera view for lane changes and blindspots."""
 
+from time import monotonic
+
 import pyray as rl
 
 from msgq.visionipc import VisionStreamType
@@ -16,6 +18,7 @@ from openpilot.selfdrive.ui.onroad.cameraview import (
 )
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   DEFAULT_WINDOW_CENTER_Y,
+  PostTriggerHold,
   Region,
   Side,
   ease_visibility_alpha,
@@ -93,6 +96,10 @@ class _CroppedDcamMixin:
       "left": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
       "right": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
     }
+    self._post_trigger_hold = {
+      "left": PostTriggerHold(),
+      "right": PostTriggerHold(),
+    }
     self._low_light_filter = FirstOrderFilter(0.0, LOW_LIGHT_RC, 1.0 / gui_app.target_fps)
     # The native shaders output opaque camera pixels. Replace only this child
     # view's shader with an alpha-aware equivalent so the road view underneath
@@ -139,14 +146,22 @@ class _CroppedDcamMixin:
   def render_crops(self, content_rect: rl.Rectangle, left_active: bool, right_active: bool,
                    calibration_rpy: tuple[float, float, float], window_center_y: float | None,
                    focal_length: float, light_sensor: float = -1.0) -> None:
+    # Keep each side fully targeted for one second after its turn-signal/BLIS
+    # trigger drops, then hand off to the existing OEM-like fade-out.
+    now = monotonic()
+    held_active = {
+      "left": self._post_trigger_hold["left"].update(left_active, now),
+      "right": self._post_trigger_hold["right"].update(right_active, now),
+    }
+
     # Do not advance the transition before the first usable frame; otherwise a
     # newly connected stream could pop in after the fade has already completed.
     if not self.update_frame() or self.frame is None:
       return
 
     side_alpha = {
-      "left": self._update_side_alpha("left", left_active),
-      "right": self._update_side_alpha("right", right_active),
+      "left": self._update_side_alpha("left", held_active["left"]),
+      "right": self._update_side_alpha("right", held_active["right"]),
     }
     if max(side_alpha.values()) <= VISIBLE_ALPHA_THRESHOLD:
       return
