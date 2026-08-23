@@ -1,15 +1,15 @@
 """Install exception handler for process crash."""
-import json  # BluePilot: commIssue startup-window filter
 import logging  # BluePilot: LoggingIntegration below
 import os
+import re  # BluePilot: model-eval frame-drop threshold filter
+import time  # BluePilot: model-eval frame-drop rate limiting
 import traceback
 from datetime import datetime
 from enum import Enum
-from importlib.metadata import PackageNotFoundError, version as pkg_version  # BluePilot: enable_logs version guard
 
 import sentry_sdk
 from sentry_sdk.integrations.threading import ThreadingIntegration
-from sentry_sdk.integrations.logging import LoggingIntegration  # BluePilot: max-coverage log capture (see init())
+from sentry_sdk.integrations.logging import LoggingIntegration  # BluePilot: log capture, tuned for memory (see init())
 
 from openpilot.common.params import Params
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
@@ -70,6 +70,16 @@ _NOISY_LOG_SUBSTRINGS = (
   # Matches the stable prefix only; the exception text after it varies by failure type (timeout, DNS,
   # connection refused, ...). Plain f-string, no NiceOrderedDict/JSON quoting concern here.
   "Failed to fetch prime status:",
+  # selfdrive/selfdrived/selfdrived.py — commIssue ("Communication Issue Between Processes") IS a
+  # real driver-facing alert, and we tried a threshold approach first (filter only transient ones in
+  # the first 20s after process start, via a 'dt' field, keep anything after that as presumed
+  # persistent). In practice a single flapping/unstable device blows past that: 151 commIssue alerts
+  # from one dongle overnight, all with dt well past the startup window, so "persistent" != "rare".
+  # Blanket-filtered now — cloudlog.event() still writes it locally on-device every time (this only
+  # stops it from becoming a GlitchTip issue), so it's still in a user's RLOG if we need to pull one
+  # for someone reporting real persistent comm issues. Matches on the JSON event key only (see the
+  # selfdrived.initialized entry above for why: NiceOrderedDict -> double-quoted JSON, not repr).
+  '"event": "commIssue"',
 )
 
 # BluePilot: daemons whose code we never touch (verified: no "# BluePilot:" markers in either file
@@ -84,33 +94,42 @@ _UPSTREAM_ONLY_DAEMONS = (
   "hardwared",
 )
 
-# BluePilot: commIssue (selfdrive/selfdrived/selfdrived.py) is a REAL driver-facing alert (soft-
-# disable + no-entry, "Communication Issue Between Processes") — unlike everything else filtered
-# above, it's not always benign, so it does NOT get a blanket substring/daemon filter. Instead:
-# transient ones in the first ~20s after process start (peripheral streams like modelV2/
-# liveCalibration/liveDelay still catching up — the common case seen in practice) are filtered;
-# anything after that window is presumed a genuine mid-drive regression and left alone. Relies on
-# a 'dt' field BP added to that specific log call (see selfdrived.py) — older commIssue messages
-# without it (e.g. a device that hasn't updated yet) are NOT filtered, the safe default.
-_COMM_ISSUE_STARTUP_WINDOW_S = 20.0
+# BluePilot: selfdrive/modeld/modeld.py and sunnypilot/modeld_v2/modeld.py (stock/sunnypilot,
+# unmodified by us — verified no "# BluePilot:" markers) log "skipping model eval. Dropped N
+# frames" via cloudlog.error() UNCONDITIONALLY on any vipc_dropped_frames > 0 — no rate-limit,
+# no dedup, one event per occurrence. In practice this floods GlitchTip with a wide spread of
+# values (dozens in the 20s-30s, up to 86 seen), not just a handful of small outliers — so a
+# magnitude cutoff alone isn't enough; even a genuinely large stall can repeat many times in one
+# rough drive. Two layers: drops <=75 frames (~3.75s at MODEL_RUN_FREQ=20Hz) are suppressed
+# outright as unremarkable for this fleet; anything larger is rate-limited to at most one report
+# per _MODEL_EVAL_DROP_REPORT_INTERVAL_S so a single bad drive can't spam dozens of alerts for
+# the same underlying condition. Rate-limit state is per-process (module-level), so it naturally
+# resets on each daemon restart (new boot/drive gets a fresh look).
+_MODEL_EVAL_DROP_PATTERN = re.compile(r"skipping model eval\. Dropped (\d+) frames")
+_MODEL_EVAL_DROP_THRESHOLD_FRAMES = 75  # ~3.75s at MODEL_RUN_FREQ=20Hz
+_MODEL_EVAL_DROP_REPORT_INTERVAL_S = 600  # at most one report per 10 min, even for large stalls
+_last_model_eval_drop_report_t = 0.0
 
 
-def _is_startup_comm_issue(formatted: str) -> bool:
-  if '"event": "commIssue"' not in formatted:
+def _should_suppress_frame_drop(formatted: str) -> bool:
+  m = _MODEL_EVAL_DROP_PATTERN.search(formatted)
+  if m is None:
     return False
-  try:
-    payload = json.loads(formatted)
-  except (json.JSONDecodeError, ValueError):
-    return False
-  dt = payload.get("dt")
-  return isinstance(dt, (int, float)) and dt < _COMM_ISSUE_STARTUP_WINDOW_S
+  if int(m.group(1)) <= _MODEL_EVAL_DROP_THRESHOLD_FRAMES:
+    return True
+  global _last_model_eval_drop_report_t
+  now = time.monotonic()
+  if now - _last_model_eval_drop_report_t < _MODEL_EVAL_DROP_REPORT_INTERVAL_S:
+    return True
+  _last_model_eval_drop_report_t = now
+  return False
 
 
 def _before_send(event: dict, hint: dict) -> dict | None:
   if event.get("tags", {}).get("daemon") in _UPSTREAM_ONLY_DAEMONS:
     return None
   formatted = event.get("logentry", {}).get("formatted", "")
-  if _is_startup_comm_issue(formatted):
+  if _should_suppress_frame_drop(formatted):
     return None
   if any(s in formatted for s in _NOISY_LOG_SUBSTRINGS):
     return None
@@ -130,7 +149,13 @@ def report_tombstone(fn: str, message: str, contents: str) -> None:
 
 
 def capture_exception(*args, **kwargs) -> None:
-  cloudlog.error("crash", exc_info=kwargs.get('exc_info', 1))
+  # BluePilot: was cloudlog.error(...) -- LoggingIntegration(event_level=ERROR) turned this into its
+  # own GlitchTip event duplicating the properly stack-trace-grouped sentry_sdk.capture_exception()
+  # call a few lines down, for the exact same exception. Doesn't inflate *issue* count the way
+  # save_exception()'s did below (exc_info fingerprints this into the same issue), just adds a
+  # redundant event under it. info() keeps it as a breadcrumb.
+  cloudlog.info("crash", exc_info=kwargs.get('exc_info', 1))
+  # End BluePilot
 
   try:
     save_exception(traceback.format_exc())
@@ -160,14 +185,30 @@ def save_exception(content: str) -> None:
         else:
           f.write(content)
 
-    cloudlog.error(f"logged crash to {files}")
+    # BluePilot: was cloudlog.error(...). Two compounding problems: (1) same redundancy as
+    # capture_exception() above -- the real report is sentry_sdk.capture_exception(), called right
+    # after this returns. (2) worse: the message embeds a per-call timestamped filename, so GlitchTip
+    # can never group repeats -- every single occurrence is a distinct "new issue". Confirmed via direct
+    # DB query: one device stuck in a UI crash loop produced 11,767 distinct "logged crash to [...]"
+    # issues in 20 hours, each firing its own alert (this is what was flooding Discord). info() keeps
+    # it as a breadcrumb without creating an issue at all.
+    cloudlog.info(f"logged crash to {files}")
+    # End BluePilot
   except Exception:
     cloudlog.exception("error when attempting to save exception")
 
 
-def capture_fingerprint_mock() -> None:
+def capture_fingerprint_mock(vin: str | None = None) -> None:
   try:
     set_user()
+    # BluePilot: tag the VIN so this is actionable — without it we can't tell a VIN-query failure
+    # (vin == VIN_UNKNOWN, "0"*17, see opendbc/car/vin.py) from a case where the VIN was read fine
+    # but nothing (VIN-based or CAN/FW) matched it. Same data opendbc_repo/car_helpers.py now logs
+    # locally for the "car doesn't match any fingerprints" carlog.error() path — this is the other
+    # reporting path for the same failure (see sunnypilot/selfdrive/car/interfaces.py:log_fingerprint).
+    if vin:
+      sentry_sdk.set_tag("carVin", vin)
+    # End BluePilot
     message = "car doesn't match any fingerprints"
     sentry_sdk.capture_message(message=message, level="error")
     sentry_sdk.flush()
@@ -207,27 +248,6 @@ def get_properties() -> tuple[str, str, str]:
   return dongle_id, git_username, sunnylink_dongle_id
 
 
-# BluePilot: enable_logs exists only on sentry-sdk >= ~2.35; older builds (incl. some AGNOS venvs)
-# raise TypeError on sentry_sdk.init(enable_logs=...). Gate it on the installed version.
-def _sentry_sdk_supports_enable_logs() -> bool:
-  try:
-    v = pkg_version("sentry-sdk")
-  except PackageNotFoundError:
-    return False
-  parts: list[int] = []
-  for segment in v.split(".")[:3]:
-    digits = "".join(ch for ch in segment if ch.isdigit())
-    if not digits:
-      break
-    parts.append(min(int(digits), 9999))
-    if len(parts) == 3:
-      break
-  while len(parts) < 3:
-    parts.append(0)
-  return tuple(parts) >= (2, 35, 0)
-# End BluePilot
-
-
 def init(project: SentryProject) -> bool:
   build_metadata = get_build_metadata()
 
@@ -238,24 +258,36 @@ def init(project: SentryProject) -> bool:
   if project == SentryProject.SELFDRIVE:
     integrations.append(ThreadingIntegration(propagate_hub=True))
 
-  # BluePilot: maximum coverage. cloudlog is a SwagLogger(logging.Logger) with propagate=True, so a
-  # LoggingIntegration on the root logger captures it: ERROR+ become Sentry events (this catches the
-  # daemon errors that are caught-and-logged rather than crashing the process — the "some things, not
-  # all" gap), INFO+ become breadcrumbs for context. Lower event_level to WARNING for even more volume.
-  integrations.append(LoggingIntegration(level=logging.INFO, event_level=logging.ERROR))
+  # BluePilot: cloudlog is a SwagLogger(logging.Logger) with propagate=True, so a LoggingIntegration
+  # on the root logger captures it: ERROR+ become Sentry events (catches daemon errors that are
+  # caught-and-logged rather than crashing the process), WARNING+ become breadcrumbs for trailing
+  # context on a real crash.
+  #
+  # This used to be level=logging.INFO with max_value_length=8192 (8x sentry_sdk's own 1024 default)
+  # and no max_breadcrumbs cap (sentry_sdk default: 100) and traces_sample_rate=1.0 (100% APM/span
+  # sampling) and enable_logs=True (a SECOND structured-logs capture pipeline duplicating the same
+  # log stream) -- "maximum coverage", applied fleet-wide since sentry.init() runs once in
+  # manager.py before the pre-fork daemon-spawn loop, so every one of ~30-40 daemon processes per
+  # device independently accumulates its own breadcrumb/trace/log buffers for its whole run.
+  # Multiple low-memory-reboot reports on bp-7.0 traced back to this (see
+  # bluepilot/agent_info/23_Sentry_Memory_Findings_2026-08-11.html) -- INFO-level cloudlog calls are
+  # extremely frequent throughout this codebase, and 8x-larger breadcrumb values times up to 100 of
+  # them times dozens of long-running processes adds up on a 3.7GB device. Tuned down, not reverted:
+  # WARNING-level breadcrumbs still give useful trailing context without routine info-level chatter;
+  # traces and the redundant second logs pipeline are dropped since nothing in our crash-triage
+  # workflow has used either (everything so far has come from Issues/breadcrumbs/tags).
+  integrations.append(LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR))
 
   init_kw = dict(
     default_integrations=False,
     release=get_version(),
     integrations=integrations,
-    traces_sample_rate=1.0,
-    max_value_length=8192,
+    traces_sample_rate=0.0,
+    max_value_length=1024,  # back to sentry_sdk's own default
+    max_breadcrumbs=50,  # explicit cap, half of sentry_sdk's 100 default
     environment=env,
     before_send=_before_send,
   )
-  # enable_logs = structured Sentry Logs (separate from the LoggingIntegration events above).
-  if _sentry_sdk_supports_enable_logs():
-    init_kw["enable_logs"] = True
 
   sentry_sdk.init(project.value, **init_kw)
   # End BluePilot
