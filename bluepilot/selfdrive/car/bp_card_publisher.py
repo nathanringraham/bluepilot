@@ -80,6 +80,7 @@ def _refresh_settings_cache() -> dict:
     "bmsRainbowLaneLines":             _get_bool(p, "BPRainbowLines"),
     "bmsShowBlindspotOverlay":         _get_bool(p, "ShowBlindspotOverlay", True),
     "bmsDcamBlindspotLaneChange":      _get_bool(p, "BPCroppedDcam"),
+    "bmsTeslaStyleMode":               _get_str(p, "BPThemePack").strip().lower() in ("tesla", "tesla_dark"),
     "bmsShowBrakeStatus":              _get_bool(p, "ShowBrakeStatus"),
     "bmsShowConfidenceBall":           _get_bool(p, "BPShowConfidenceBall", True),
     "bmsAnimateSteeringWheel":         _get_bool(p, "BPAnimateSteeringWheel", True),

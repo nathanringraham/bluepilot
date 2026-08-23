@@ -215,7 +215,7 @@ class BluePilotLayout(Widget):
       icon="chffr_wheel.png"
     )
 
-    # BluePilot: one theme selector for everything (8-Bit Racer + seasonal packs),
+    # BluePilot: one theme selector for everything (code themes + seasonal packs),
     # same entries and param as the MICI page — see theme_pack.selector_entries().
     # A dialog (not a button row) so any number of packs stays inside the item box.
     self._theme_entries = theme_pack.selector_entries()
@@ -224,7 +224,11 @@ class BluePilotLayout(Widget):
     self._theme_action.set_value(lambda: self._get_theme_display())
     self._theme_pack_btn = ListItem(
       lambda: tr("Theme"),
-      description=lambda: tr("8-Bit Racer game view, or a seasonal theme pack (recolors the road and the wheel icon)."),
+      description=lambda: tr(" ".join((
+        "Choose 8-Bit Racer, Tesla Light, Tesla Dark, or a seasonal theme pack.",
+        "Tesla themes replace the camera scene and temporarily hide conflicting scene overlays;",
+        "HUD, alerts, driver monitoring, gauges, and safety warnings remain.",
+      ))),
       action_item=self._theme_action,
       callback=self._select_theme,
     )

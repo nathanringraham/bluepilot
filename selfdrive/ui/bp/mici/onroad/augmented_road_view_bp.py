@@ -24,6 +24,7 @@ from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 # BluePilot: swipe-down shortcut to lateral debug screen
 from openpilot.selfdrive.ui.bp.mici.onroad.lateral_debug_mici import LateralDebugMici
 from openpilot.selfdrive.ui.bp.mici.onroad.rad_racer_mici import RadRacerThemeMici
+from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import TeslaStyleRendererBP
 from openpilot.system.ui.widgets import Widget
 # BluePilot: unified theme selector (BPThemePack param)
 from openpilot.selfdrive.ui.bp.lib import theme_pack, theme_scene
@@ -98,6 +99,17 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     # BluePilot: Rad Racer 8-bit theme (MICI-scaled; no gauge cluster on the small screen)
     self._rad_racer_theme = RadRacerThemeMici()
 
+    # BluePilot: MICI uses the shared display-only environment renderer with a
+    # content-relative projection. Keep the compact stock lead/radar UI instead
+    # of layering Tesla actor silhouettes onto the comma 4's smaller canvas.
+    self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
+    self._tesla_style_renderer = TeslaStyleRendererBP(
+      relative_projection=True,
+      show_lead_vehicle=False,
+      theme_variant=self._tesla_theme_variant or "light",
+    )
+    self._tesla_style_enabled = self._tesla_theme_variant is not None
+
     # BluePilot: independent dcam client; the forward camera remains untouched.
     self._cropped_dcam = self._child(MiciCroppedDcamViewBP())
     self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
@@ -149,18 +161,30 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       int(self._content_rect.height)
     )
 
-    # Render the base camera view. Minimal Driving View suppression lives in MiciCameraViewBP.
-    MiciCameraViewBP._render(self, self._content_rect)
-
-    # BluePilot: Keep the independent dcam toggle responsive without per-frame Params I/O.
+    # BluePilot: Keep independent scene toggles responsive without per-frame Params I/O.
     self._dcam_param_counter += 1
     if self._dcam_param_counter >= 60:
       self._dcam_param_counter = 0
       self._cropped_dcam_enabled = self._bp_params.get_bool("BPCroppedDcam")
+      self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
+      self._tesla_style_enabled = self._tesla_theme_variant is not None
+      self._tesla_style_renderer.set_theme_variant(self._tesla_theme_variant)
+      self._model_renderer.set_tesla_style(self._tesla_style_enabled, self._tesla_theme_variant)
+
+    # BluePilot: Tesla-style mode owns only the environment layer. The normal
+    # camera and all existing scene modes remain untouched when the flag is off.
+    if self._tesla_style_enabled:
+      # CameraView normally initializes the car-space projection as part of its
+      # render pass. Tesla mode intentionally skips that pass, so initialize the
+      # same cached transform explicitly before projecting road geometry/tracks.
+      self._calc_frame_matrix(self._content_rect)
+      self._tesla_style_renderer.render_background(self._content_rect, self._model_renderer)
+    else:
+      MiciCameraViewBP._render(self, self._content_rect)
 
     # BluePilot: unified theme scene dispatch — Rad Racer draws inline on MICI (no full
     # takeover: the normal HUD stays); pack scenes get background + foreground passes.
-    _scene = theme_scene.active_scene()
+    _scene = None if self._tesla_style_enabled else theme_scene.active_scene()
     _rad_racer = _scene is not None and _scene.replaces_hud()
     if _rad_racer:
       self._model_renderer.prepare_projection(self._content_rect)
@@ -171,9 +195,13 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     # Model overlays
     self._model_renderer.render(self._content_rect)
 
+    if self._tesla_style_enabled:
+      self._tesla_style_renderer.render_traffic(self._content_rect, self._model_renderer)
+
     # BluePilot: Side-window view intentionally covers model path/lane geometry,
     # while compact HUD controls, warnings, alerts, and the side panel stay above.
-    self._render_cropped_dcam()
+    if not self._tesla_style_enabled:
+      self._render_cropped_dcam()
 
     # BluePilot: Rad Racer sprites (ego + leads) over the road; no gauge cluster on MICI,
     # so the ego car anchors to the bottom edge of the content rect instead.

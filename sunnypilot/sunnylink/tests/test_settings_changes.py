@@ -154,6 +154,12 @@ class TestTestManeuversSection:
 
 
 class TestBluePilotVehicleVisuals:
+  def test_tesla_is_a_theme_option_not_a_standalone_toggle(self, schema):
+    assert _find_item(schema, "BPTeslaStyleMode") is None
+    item = _find_item(schema, "BPThemePack")
+    assert item is not None
+    assert {option["value"] for option in item["options"]} >= {"", "rad_racer", "tesla", "tesla_dark"}
+
   def test_rainbow_lane_lines_ordered_with_visual_toggles(self, schema):
     items = schema["vehicle_settings"]["ford"]["items"]
     keys = [item["key"] for item in items]

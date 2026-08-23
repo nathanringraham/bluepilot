@@ -200,6 +200,7 @@ class ControllerStateBP:
   bmsRainbowLaneLines: bool = False
   bmsShowBlindspotOverlay: bool = True
   bmsDcamBlindspotLaneChange: bool = False
+  bmsTeslaStyleMode: bool = False
   bmsShowBrakeStatus: bool = False
   bmsShowConfidenceBall: bool = True
   bmsAnimateSteeringWheel: bool = True

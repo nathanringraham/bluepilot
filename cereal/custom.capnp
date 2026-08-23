@@ -499,7 +499,7 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
   bmsHideOnroadBorder @12 :Bool;  # BPHideOnroadBorder
   bmsDisableLaneLineStatusColor @13 :Bool;  # BPDisableLaneLineStatusColor
   bmsMinimalDrivingView @14 :Bool;  # BPHideCameraView
-  bmsEightBitRacerTheme @15 :Bool;  # BPRadRacerTheme (TICI only)
+  bmsEightBitRacerTheme @15 :Bool;  # BPThemePack == "rad_racer"
   bmsRainbowLaneLines @16 :Bool;  # BPRainbowLines
   bmsShowBlindspotOverlay @17 :Bool;  # ShowBlindspotOverlay
   bmsShowBrakeStatus @18 :Bool;  # ShowBrakeStatus
@@ -555,6 +555,7 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
 
   # BluePilot: append-only menu fields (kept here so existing ordinals never move).
   bmsDcamBlindspotLaneChange @55 :Bool;  # BPCroppedDcam
+  bmsTeslaStyleMode @56 :Bool;  # BPThemePack selected Tesla Light/Dark (ordinal/name retained for API compatibility)
 
   enum LateralMode {
     openpilot @0;  # BP lateral bypassed (disable_BP_lat_UI)
