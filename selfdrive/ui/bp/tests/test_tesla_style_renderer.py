@@ -7,13 +7,22 @@ import pyray as rl
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
   LEAD_HEIGHT_TO_WIDTH,
   LeadFadeState,
+  ROAD_CHAIN_POINT_COUNT,
+  ROAD_NEUTRAL_FAR_Y_FRACTION,
+  RoadGeometryState,
   SEDAN_BODY_POINTS,
   SEDAN_ROOF_POINTS,
+  SEDAN_WHEEL_CENTER_X,
+  SEDAN_WHEEL_CENTER_Y,
+  SEDAN_WHEEL_RADIUS_X,
+  SEDAN_WHEEL_RADIUS_Y,
   TeslaStyleRendererBP,
   color_with_opacity,
   extend_road_edges_to_bottom,
   lead_actor_base_y,
   lead_actor_width,
+  neutral_road_polygon,
+  normalized_road_polygon,
   project_car_space_unclipped,
   valid_primary_lead_values,
 )
@@ -51,6 +60,49 @@ def test_road_extension_is_not_added_when_closure_is_already_offscreen() -> None
   right = [(900.0, 510.0), (700.0, 400.0)]
 
   assert extend_road_edges_to_bottom(left, right, rect) == (left, right)
+
+
+def test_normalized_road_polygon_has_fixed_paired_chains() -> None:
+  rect = rl.Rectangle(0, 0, 1000, 500)
+  left = [(250.0, 450.0), (380.0, 350.0), (450.0, 250.0)]
+  right = [(750.0, 450.0), (620.0, 350.0), (550.0, 250.0)]
+
+  road = normalized_road_polygon(left, right, rect)
+
+  assert road is not None
+  assert road.shape == (ROAD_CHAIN_POINT_COUNT * 2, 2)
+  road_left = road[:ROAD_CHAIN_POINT_COUNT]
+  road_right = road[ROAD_CHAIN_POINT_COUNT:][::-1]
+  assert np.all(road_left[:, 0] < road_right[:, 0])
+  assert road_left[0, 1] == road_right[0, 1] == pytest.approx(501.0)
+
+
+def test_neutral_road_is_short_symmetric_apron_below_horizon() -> None:
+  rect = rl.Rectangle(100, 50, 1000, 600)
+  road = neutral_road_polygon(rect)
+  left = road[:ROAD_CHAIN_POINT_COUNT]
+  right = road[ROAD_CHAIN_POINT_COUNT:][::-1]
+
+  assert road.shape == (ROAD_CHAIN_POINT_COUNT * 2, 2)
+  assert np.allclose(left[:, 0] + right[:, 0], 2.0 * (rect.x + rect.width / 2.0))
+  assert left[-1, 1] == right[-1, 1] == pytest.approx(
+    rect.y + rect.height * ROAD_NEUTRAL_FAR_Y_FRACTION,
+  )
+  assert left[-1, 1] > rect.y + rect.height * 0.50
+
+
+def test_road_geometry_eases_instead_of_snapping_between_targets() -> None:
+  state = RoadGeometryState()
+  initial = np.zeros((ROAD_CHAIN_POINT_COUNT * 2, 2), dtype=np.float32)
+  target = np.full_like(initial, 100.0)
+
+  assert np.array_equal(state.update(initial, False, 20.0), initial)
+  first = state.update(target, True, 20.0)
+
+  assert np.all(first > initial)
+  assert np.all(first < target)
+  assert 0.0 < state.neutral_amount < 1.0
+  assert np.all(state.update(target, True, 20.0) > first)
 
 
 @pytest.mark.parametrize(("lead", "expected"), [
@@ -152,6 +204,14 @@ def test_sedan_normalized_geometry_stays_in_bounds() -> None:
     a, b, c = SEDAN_BODY_POINTS[i - 2], SEDAN_BODY_POINTS[i - 1], SEDAN_BODY_POINTS[i]
     body_cross_products.append((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]))
   assert all(cross_product >= 0.0 for cross_product in body_cross_products)
+
+
+def test_sedan_wheels_sit_outside_body_shoulders_and_inside_actor_height() -> None:
+  body_half_width = max(abs(x) for x, _ in SEDAN_BODY_POINTS)
+
+  assert SEDAN_WHEEL_CENTER_X + SEDAN_WHEEL_RADIUS_X > body_half_width
+  assert -1.0 < SEDAN_WHEEL_CENTER_Y - SEDAN_WHEEL_RADIUS_Y
+  assert SEDAN_WHEEL_CENTER_Y + SEDAN_WHEEL_RADIUS_Y < 0.0
 
 
 def test_traffic_projection_retains_points_outside_model_clip_region() -> None:

@@ -81,16 +81,14 @@ bool Route::loadSegments() {
 }
 
 bool Route::loadFromAutoSource() {
-  const char *origin_prefix_env = getenv("OPENPILOT_PREFIX");
-  const bool had_origin_prefix = origin_prefix_env != nullptr;
-  const std::string origin_prefix = origin_prefix_env != nullptr ? origin_prefix_env : "";
-  if (had_origin_prefix) {
+  auto origin_prefix = getenv("OPENPILOT_PREFIX");
+  if (origin_prefix) {
     setenv("OPENPILOT_PREFIX", "", 1);
   }
   auto cmd = util::string_format("../auto_source.py \"%s\"", route_string_.c_str());
   auto log_files = split(util::check_output(cmd), '\n');
-  if (had_origin_prefix) {
-    setenv("OPENPILOT_PREFIX", origin_prefix.c_str(), 1);
+  if (origin_prefix) {
+    setenv("OPENPILOT_PREFIX", origin_prefix, 1);
   }
 
   const static std::regex rx(R"(\/(\d+)\/)");

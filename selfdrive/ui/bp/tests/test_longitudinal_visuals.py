@@ -1,12 +1,15 @@
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
+  approach_tesla_geometry_alpha,
   advance_tesla_blue_phase,
   legacy_rainbow_cycle_rate,
   longitudinal_control_active,
   rainbow_cycle_rate,
+  tesla_geometry_reliable,
   tesla_path_mode,
 )
 
@@ -77,3 +80,22 @@ def test_tesla_blue_phase_is_speed_dependent_and_stops_at_standstill():
 ])
 def test_tesla_rainbow_toggle_overrides_blue_path(rainbow, long_active, expected):
   assert tesla_path_mode(rainbow, long_active) == expected
+
+
+def test_tesla_geometry_rejects_standstill_and_short_turn_predictions():
+  long_path = np.asarray([[0.0, 0.0, 0.0], [45.0, 1.0, 0.0]])
+  short_path = np.asarray([[0.0, 0.0, 0.0], [22.0, 8.0, 0.0]])
+
+  assert not tesla_geometry_reliable(long_path, FakeSubMaster(v_ego=0.0))
+  assert not tesla_geometry_reliable(short_path, FakeSubMaster(v_ego=4.0))
+  assert tesla_geometry_reliable(long_path, FakeSubMaster(v_ego=4.0))
+
+
+def test_tesla_geometry_visibility_eases_without_flashing():
+  fading_in = approach_tesla_geometry_alpha(0.0, True, 20.0)
+  fading_out = approach_tesla_geometry_alpha(1.0, False, 20.0)
+
+  assert 0.0 < fading_in < 1.0
+  assert 0.0 < fading_out < 1.0
+  assert approach_tesla_geometry_alpha(fading_in, True, 20.0) > fading_in
+  assert approach_tesla_geometry_alpha(fading_out, False, 20.0) < fading_out

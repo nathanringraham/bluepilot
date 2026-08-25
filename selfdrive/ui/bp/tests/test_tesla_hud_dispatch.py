@@ -52,8 +52,8 @@ class FakeSubMaster:
 
 def test_tesla_max_and_lead_typography_is_enlarged() -> None:
   assert TESLA_SET_SPEED_SIZE == 100
-  assert TESLA_MAX_LABEL_SIZE == 34
-  assert TESLA_LEAD_TEXT_SIZE == 38
+  assert TESLA_MAX_LABEL_SIZE == 40
+  assert TESLA_LEAD_TEXT_SIZE == 44
 
 
 def test_tesla_lead_speed_uses_fused_primary_lead() -> None:

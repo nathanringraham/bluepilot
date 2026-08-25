@@ -96,17 +96,23 @@ def tesla_blue_cycle_color(phase: float, alpha: int) -> rl.Color:
   return rl.Color(*channels, alpha)
 
 
-def tesla_path_gradient_colors(palette: TeslaPalette, phase: float | None = None) -> list[rl.Color]:
+def tesla_path_gradient_colors(palette: TeslaPalette, phase: float | None = None,
+                                opacity: float = 1.0) -> list[rl.Color]:
   """Return static Tesla blue or an animated all-blue shade sequence."""
+  opacity = max(0.0, min(float(opacity), 1.0))
+
+  def faded(color: rl.Color) -> rl.Color:
+    return rl.Color(color.r, color.g, color.b, round(color.a * opacity))
+
   if phase is None:
     far = palette.path_cyan
     return [
-      palette.path_blue,
-      far,
+      faded(palette.path_blue),
+      faded(far),
       rl.Color(far.r, far.g, far.b, 0),
     ]
 
   near = tesla_blue_cycle_color(phase, palette.path_blue.a)
   middle = tesla_blue_cycle_color(phase + 1.0 / 3.0, max(palette.path_cyan.a, 145))
   far = tesla_blue_cycle_color(phase + 2.0 / 3.0, palette.path_cyan.a)
-  return [near, middle, far, rl.Color(far.r, far.g, far.b, 0)]
+  return [faded(near), faded(middle), faded(far), rl.Color(far.r, far.g, far.b, 0)]

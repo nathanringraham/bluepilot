@@ -56,3 +56,11 @@ def test_static_and_cycling_tesla_paths_remain_blue_only():
   assert len(cycling) == 4
   for color in (*static, *cycling):
     assert color.b >= color.g >= color.r
+
+
+def test_tesla_path_opacity_scales_without_changing_hue():
+  full = tesla_path_gradient_colors(LIGHT_PALETTE)
+  faded = tesla_path_gradient_colors(LIGHT_PALETTE, opacity=0.25)
+
+  assert [(c.r, c.g, c.b) for c in faded] == [(c.r, c.g, c.b) for c in full]
+  assert faded[0].a == round(full[0].a * 0.25)

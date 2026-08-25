@@ -13,9 +13,10 @@ import numpy as np
 import pyray as rl
 
 from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_variant
+from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import tesla_geometry_reliable
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
-from openpilot.system.ui.lib.shader_polygon import draw_polygon
+from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 
 MAX_LEAD_DISTANCE_M = 140.0
 NOMINAL_LANE_WIDTH_M = 3.7
@@ -25,6 +26,11 @@ LEAD_FULL_SCALE_DISTANCE_M = 8.0
 LEAD_FAR_SCALE_DISTANCE_M = 55.0
 LEAD_FAR_DISTANCE_SCALE = 0.70
 LEAD_FADE_SECONDS = 0.25
+ROAD_CHAIN_POINT_COUNT = 9
+ROAD_NEUTRAL_FAR_Y_FRACTION = 0.60
+ROAD_NEUTRAL_HORIZON_Y_FRACTION = 0.44
+ROAD_TRANSITION_SECONDS = 0.42
+ROAD_TRACKING_SECONDS = 0.24
 
 SEDAN_BODY_POINTS = (
   (-0.17, -1.00), (0.17, -1.00), (0.25, -0.96), (0.32, -0.84),
@@ -40,6 +46,10 @@ SEDAN_TRUNK_POINTS = ((-0.35, -0.27), (0.35, -0.27), (0.40, -0.13), (-0.40, -0.1
 SEDAN_REAR_FASCIA_POINTS = ((-0.41, -0.12), (0.41, -0.12), (0.37, -0.02), (-0.37, -0.02))
 SEDAN_LEFT_FRONT_FACET = ((-0.25, -0.96), (-0.32, -0.84), (-0.40, -0.48), (-0.30, -0.45))
 SEDAN_LEFT_REAR_FACET = ((-0.30, -0.43), (-0.40, -0.48), (-0.46, -0.10), (-0.37, -0.02))
+SEDAN_WHEEL_CENTER_X = 0.455
+SEDAN_WHEEL_CENTER_Y = -0.23
+SEDAN_WHEEL_RADIUS_X = 0.065
+SEDAN_WHEEL_RADIUS_Y = 0.12
 
 LeadValues = tuple[float, float, float]
 
@@ -115,6 +125,37 @@ class LeadFadeState:
     return self.displayed_values, self.opacity
 
 
+@dataclass
+class RoadGeometryState:
+  """Ease between model geometry and a calm, non-predictive near-field apron."""
+  points: np.ndarray | None = None
+  neutral_amount: float = 1.0
+  neutral: bool = True
+
+  def reset(self) -> None:
+    self.points = None
+    self.neutral_amount = 1.0
+    self.neutral = True
+
+  def update(self, target: np.ndarray, neutral: bool, fps: float) -> np.ndarray:
+    target = np.asarray(target, dtype=np.float32)
+    if self.points is None or self.points.shape != target.shape:
+      self.points = target.copy()
+      self.neutral_amount = 1.0 if neutral else 0.0
+      self.neutral = neutral
+      return self.points.copy()
+
+    changed_mode = neutral != self.neutral
+    tau = ROAD_TRANSITION_SECONDS if changed_mode or neutral else ROAD_TRACKING_SECONDS
+    dt = 1.0 / max(1.0, float(fps))
+    alpha = 1.0 - float(np.exp(-dt / tau))
+    self.points += (target - self.points) * alpha
+    neutral_target = 1.0 if neutral else 0.0
+    self.neutral_amount += (neutral_target - self.neutral_amount) * alpha
+    self.neutral = neutral
+    return self.points.copy()
+
+
 def color_with_opacity(color: rl.Color, opacity: float) -> rl.Color:
   return rl.Color(color.r, color.g, color.b, round(color.a * float(np.clip(opacity, 0.0, 1.0))))
 
@@ -172,6 +213,56 @@ def extend_road_edges_to_bottom(left: list[tuple[float, float]], right: list[tup
   return [left_anchor, *left], [right_anchor, *right]
 
 
+def _resample_road_edge(edge: list[tuple[float, float]], count: int) -> np.ndarray | None:
+  points = np.asarray(edge, dtype=np.float32)
+  if points.ndim != 2 or points.shape[0] < 2 or points.shape[1] != 2 or not np.all(np.isfinite(points)):
+    return None
+
+  lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+  cumulative = np.concatenate(([0.0], np.cumsum(lengths)))
+  total = float(cumulative[-1])
+  if total < 1e-3:
+    return None
+
+  samples = np.linspace(0.0, total, count)
+  return np.column_stack((
+    np.interp(samples, cumulative, points[:, 0]),
+    np.interp(samples, cumulative, points[:, 1]),
+  )).astype(np.float32)
+
+
+def normalized_road_polygon(left: list[tuple[float, float]], right: list[tuple[float, float]],
+                            rect: rl.Rectangle) -> np.ndarray | None:
+  """Create a fixed-size two-chain polygon suitable for temporal interpolation."""
+  left, right = extend_road_edges_to_bottom(left, right, rect)
+  left_points = _resample_road_edge(left, ROAD_CHAIN_POINT_COUNT)
+  right_points = _resample_road_edge(right, ROAD_CHAIN_POINT_COUNT)
+  if left_points is None or right_points is None:
+    return None
+  if np.any(left_points[:, 0] >= right_points[:, 0]):
+    return None
+  return np.concatenate((left_points, right_points[::-1])).astype(np.float32)
+
+
+def neutral_road_polygon(rect: rl.Rectangle) -> np.ndarray:
+  """Short road apron used when the model has no stable, useful road geometry.
+
+  It deliberately ends below the horizon and carries no invented lane lines.
+  The renderer fades its far edge into the ground, leaving only a subtle pair
+  of near-field shoulder guides through parking-lot turns and standstill noise.
+  """
+  center_x = float(rect.x + rect.width * 0.5)
+  bottom_y = float(rect.y + rect.height + 1.0)
+  far_y = float(rect.y + rect.height * ROAD_NEUTRAL_FAR_Y_FRACTION)
+  progress = np.linspace(0.0, 1.0, ROAD_CHAIN_POINT_COUNT, dtype=np.float32)
+  perspective = np.power(progress, 0.72)
+  y = bottom_y + (far_y - bottom_y) * perspective
+  half_width = rect.width * (0.46 + (0.065 - 0.46) * perspective)
+  left = np.column_stack((center_x - half_width, y))
+  right = np.column_stack((center_x + half_width, y))
+  return np.concatenate((left, right[::-1])).astype(np.float32)
+
+
 def valid_primary_lead_values(lead) -> tuple[float, float, float] | None:
   """Validate the fused primary lead without inventing a raw-radar fallback."""
   if lead is None or not bool(getattr(lead, "status", False)):
@@ -223,11 +314,13 @@ class TeslaStyleRendererBP:
     self.show_lead_vehicle = show_lead_vehicle
     self._theme_variant = theme_variant
     self._lead_fade = LeadFadeState()
+    self._road_geometry = RoadGeometryState()
 
   def set_theme_variant(self, variant: str | None) -> None:
     new_variant = variant or "light"
     if variant is None or new_variant != self._theme_variant:
       self._lead_fade.reset()
+      self._road_geometry.reset()
     self._theme_variant = new_variant
 
   def _to_screen(self, point, rect: rl.Rectangle):
@@ -257,12 +350,15 @@ class TeslaStyleRendererBP:
     )
     return self._to_screen(point, rect)
 
-  def _road_polygon(self, rect: rl.Rectangle, model_renderer) -> np.ndarray:
+  def _projected_road_polygon(self, rect: rl.Rectangle, model_renderer) -> np.ndarray | None:
     path = model_renderer._path.raw_points
-    if path.size:
+    if path.size and path.ndim == 2 and path.shape[1] >= 3 and np.all(np.isfinite(path)):
+      max_forward_distance = float(np.max(path[:, 0]))
       left: list[tuple[float, float]] = []
       right: list[tuple[float, float]] = []
       for distance in (6.0, 10.0, 16.0, 25.0, 38.0, 55.0, 78.0, 100.0):
+        if distance > max_forward_distance:
+          continue
         idx = model_renderer._get_path_length_idx(path[:, 0], distance)
         if idx >= len(path):
           continue
@@ -274,16 +370,14 @@ class TeslaStyleRendererBP:
           left.append(left_pt)
           right.append(right_pt)
       if len(left) >= 3 and len(right) >= 3:
-        left, right = extend_road_edges_to_bottom(left, right, rect)
-        return np.asarray(left + right[::-1], dtype=np.float32)
+        return normalized_road_polygon(left, right, rect)
+    return None
 
-    horizon_y = rect.y + rect.height * 0.34
-    return np.asarray([
-      (rect.x + rect.width * 0.05, rect.y + rect.height),
-      (rect.x + rect.width * 0.43, horizon_y),
-      (rect.x + rect.width * 0.57, horizon_y),
-      (rect.x + rect.width * 0.95, rect.y + rect.height),
-    ], dtype=np.float32)
+  def _road_polygon(self, rect: rl.Rectangle, model_renderer) -> np.ndarray:
+    projected = self._projected_road_polygon(rect, model_renderer)
+    use_neutral = not tesla_geometry_reliable(model_renderer._path.raw_points, ui_state.sm) or projected is None
+    target = neutral_road_polygon(rect) if use_neutral else projected
+    return self._road_geometry.update(target, use_neutral, gui_app.target_fps)
 
   def render_background(self, rect: rl.Rectangle, model_renderer) -> None:
     palette = palette_for_variant(self._theme_variant)
@@ -294,6 +388,8 @@ class TeslaStyleRendererBP:
       horizon_y = float(np.mean(far_points[:, 1]))
     else:
       horizon_y = rect.y + rect.height * 0.34
+    neutral_horizon_y = rect.y + rect.height * ROAD_NEUTRAL_HORIZON_Y_FRACTION
+    horizon_y += (neutral_horizon_y - horizon_y) * self._road_geometry.neutral_amount
     horizon_y = float(np.clip(horizon_y, rect.y + rect.height * 0.20, rect.y + rect.height * 0.55))
 
     sky_h = max(1, int(horizon_y - rect.y))
@@ -302,16 +398,38 @@ class TeslaStyleRendererBP:
                                  palette.sky_top, palette.sky_horizon)
     rl.draw_rectangle_gradient_v(int(rect.x), int(horizon_y), int(rect.width), ground_h,
                                  palette.ground_horizon, palette.ground_near)
-    draw_polygon(rect, road, palette.road_surface)
+    neutral_amount = float(np.clip(self._road_geometry.neutral_amount, 0.0, 1.0))
+    far_alpha = round(palette.road_surface.a * (1.0 - 0.92 * neutral_amount))
+    draw_polygon(
+      rect,
+      road,
+      gradient=Gradient(
+        start=(0.0, 1.0),
+        end=(0.0, 0.0),
+        colors=[
+          rl.Color(palette.road_surface.r, palette.road_surface.g, palette.road_surface.b, far_alpha),
+          palette.road_surface,
+        ],
+        stops=[0.0, 1.0],
+      ),
+    )
 
     half = len(road) // 2
     if half >= 2:
       left = road[:half]
       right = road[half:][::-1]
       for edge in (left, right):
-        for start, end in zip(edge[:-1], edge[1:], strict=True):
+        for index, (start, end) in enumerate(zip(edge[:-1], edge[1:], strict=True)):
+          depth = index / max(1, len(edge) - 2)
+          alpha_scale = 1.0 - neutral_amount * 0.90 * depth
+          shoulder = rl.Color(
+            palette.road_shoulder.r,
+            palette.road_shoulder.g,
+            palette.road_shoulder.b,
+            round(palette.road_shoulder.a * alpha_scale),
+          )
           rl.draw_line_ex(rl.Vector2(float(start[0]), float(start[1])),
-                          rl.Vector2(float(end[0]), float(end[1])), 3.0, palette.road_shoulder)
+                          rl.Vector2(float(end[0]), float(end[1])), 3.0, shoulder)
 
   @staticmethod
   def _scaled_points(cx: float, base_y: float, width: float, height: float,
@@ -346,16 +464,6 @@ class TeslaStyleRendererBP:
                     max(1, int(width * 0.44)), max(1, int(height * 0.07)),
                     fade(rl.Color(0, 0, 0, 72 if dark else 54)))
 
-    wheel_color = fade(rl.Color(28, 32, 35, 235))
-    for side in (-1.0, 1.0):
-      wheel = rl.Rectangle(
-        cx + side * width * 0.40 - width * 0.055,
-        base_y - height * 0.36,
-        width * 0.11,
-        height * 0.18,
-      )
-      rl.draw_rectangle_rounded(wheel, 0.35, 4, wheel_color)
-
     body_shape = self._scaled_points(cx, base_y, width, height, SEDAN_BODY_POINTS)
     self._draw_poly(body_shape, body)
 
@@ -373,6 +481,27 @@ class TeslaStyleRendererBP:
                     fade(rl.Color(glass_color.r, glass_color.g, glass_color.b, 220)))
     self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_TRUNK_POINTS), highlight)
     self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_REAR_FASCIA_POINTS), shade)
+
+    # Draw the sidewalls after the body so the wheels remain legible even when
+    # the actor is distant. Their centers sit just outside the sedan silhouette.
+    wheel_color = fade(rl.Color(22, 25, 28, 245))
+    wheel_hub = fade(rl.Color(98, 106, 111, 230))
+    for side in (-1.0, 1.0):
+      wheel_x = cx + side * width * SEDAN_WHEEL_CENTER_X
+      wheel_y = base_y + height * SEDAN_WHEEL_CENTER_Y
+      rl.draw_ellipse(
+        int(wheel_x), int(wheel_y),
+        max(2, int(width * SEDAN_WHEEL_RADIUS_X)),
+        max(2, int(height * SEDAN_WHEEL_RADIUS_Y)),
+        wheel_color,
+      )
+      if width >= 55.0:
+        rl.draw_ellipse(
+          int(wheel_x), int(wheel_y),
+          max(1, int(width * SEDAN_WHEEL_RADIUS_X * 0.34)),
+          max(1, int(height * SEDAN_WHEEL_RADIUS_Y * 0.44)),
+          wheel_hub,
+        )
 
     if width >= 40.0:
       lamp = fade(rl.Color(192, 55, 54, 225))

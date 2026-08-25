@@ -11,10 +11,12 @@ from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.bluepilot.ui.lib.bp_shaders import draw_rainbow_polygon
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
+  approach_tesla_geometry_alpha,
   advance_tesla_blue_phase,
   legacy_rainbow_cycle_rate,
   longitudinal_control_active,
   rainbow_cycle_rate,
+  tesla_geometry_reliable,
   tesla_path_mode,
 )
 from openpilot.selfdrive.ui.bp.lib.blindspot_visuals import tesla_blindspot_lane_active
@@ -82,6 +84,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
     self._bp_params = Params()
     self._rainbow_v = 0.0
     self._tesla_blue_phase = 0.0
+    self._tesla_path_visibility = 0.0
 
     # BluePilot: Replace SP chevron metrics with BP version (horizontal boxed layout)
     self.chevron_metrics = ChevronMetricsBP()
@@ -136,6 +139,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
   def set_tesla_style(self, enabled: bool, variant: str | None = None) -> None:
     if enabled != self._tesla_style or variant != self._tesla_theme_variant:
       self._transform_dirty = True
+      self._tesla_path_visibility = 0.0
     if enabled and not self._tesla_style:
       self._lead_was_active = [False, False]
       self._lead_track_ids = [-1, -1]
@@ -641,15 +645,27 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
       palette = palette_for_variant(self._tesla_theme_variant)
       if not self._path.projected_points.size:
         return
+      self._tesla_path_visibility = approach_tesla_geometry_alpha(
+        self._tesla_path_visibility,
+        tesla_geometry_reliable(self._path.raw_points, sm),
+        gui_app.target_fps,
+      )
+      if self._tesla_path_visibility <= 0.01:
+        return
       mode = tesla_path_mode(
         ui_state.rainbow_path,
         longitudinal_control_active(sm, ui_state.status),
       )
       if mode == "rainbow":
-        draw_rainbow_polygon(self._rect, self._path.projected_points, rainbow_v=self._rainbow_v)
+        draw_rainbow_polygon(
+          self._rect,
+          self._path.projected_points,
+          rainbow_v=self._rainbow_v,
+          alpha=0.6 * self._tesla_path_visibility,
+        )
       else:
         phase = self._tesla_blue_phase if mode == "blue_cycle" else None
-        colors = tesla_path_gradient_colors(palette, phase)
+        colors = tesla_path_gradient_colors(palette, phase, self._tesla_path_visibility)
         draw_polygon(
           self._rect,
           self._path.projected_points,

@@ -108,6 +108,7 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     self._tesla_style_enabled = self._tesla_theme_variant is not None
 
     self._theme_param_counter = 0
+
   def _on_swipe_down(self):
     if not ui_state.is_onroad():
       return
