@@ -5,9 +5,10 @@ import pyray as rl
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   TESLA_LEAD_FASTER_COLOR,
   TESLA_LEAD_FULL_RED_DELTA_MPS,
+  TESLA_LEAD_LABEL_SIZE,
   TESLA_LEAD_SLOW_RED,
   TESLA_LEAD_SLOW_YELLOW,
-  TESLA_LEAD_TEXT_SIZE,
+  TESLA_LEAD_SPEED_SIZE,
   TESLA_MAX_LABEL_SIZE,
   TESLA_SET_SPEED_SIZE,
   HudRendererBP,
@@ -51,9 +52,10 @@ class FakeSubMaster:
 
 
 def test_tesla_max_and_lead_typography_is_enlarged() -> None:
-  assert TESLA_SET_SPEED_SIZE == 100
-  assert TESLA_MAX_LABEL_SIZE == 40
-  assert TESLA_LEAD_TEXT_SIZE == 44
+  assert TESLA_SET_SPEED_SIZE == 112
+  assert TESLA_MAX_LABEL_SIZE == 46
+  assert TESLA_LEAD_LABEL_SIZE == 48
+  assert TESLA_LEAD_SPEED_SIZE == 54
 
 
 def test_tesla_lead_speed_uses_fused_primary_lead() -> None:

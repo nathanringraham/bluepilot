@@ -21,9 +21,10 @@ LateralMode = ControllerStateBP.LateralMode
 SPEED_CENTER_Y = 180
 SPEED_UNIT_CENTER_Y = 290
 
-TESLA_SET_SPEED_SIZE = 100
-TESLA_MAX_LABEL_SIZE = 40
-TESLA_LEAD_TEXT_SIZE = 44
+TESLA_SET_SPEED_SIZE = 112
+TESLA_MAX_LABEL_SIZE = 46
+TESLA_LEAD_LABEL_SIZE = 48
+TESLA_LEAD_SPEED_SIZE = 54
 TESLA_TEXT_SHADOW = rl.Color(0, 0, 0, 105)
 TESLA_LEAD_FASTER_COLOR = rl.Color(80, 216, 112, 255)
 TESLA_LEAD_SLOW_YELLOW = rl.Color(255, 211, 30, 255)
@@ -166,7 +167,7 @@ class HudRendererBP(HudRendererSP):
       set_speed_text = str(round(self.set_speed))
 
     speed_text_width = measure_text_cached(self._font_medium, set_speed_text, TESLA_SET_SPEED_SIZE).x
-    speed_pos = rl.Vector2(x + (set_speed_width - speed_text_width) / 2, y - 4)
+    speed_pos = rl.Vector2(x + (set_speed_width - speed_text_width) / 2, y - 9)
     rl.draw_text_ex(
       self._font_medium, set_speed_text,
       rl.Vector2(speed_pos.x + 2, speed_pos.y + 2),
@@ -184,7 +185,7 @@ class HudRendererBP(HudRendererSP):
     max_size = 34 if self.show_icbm_status else TESLA_MAX_LABEL_SIZE
     max_spacing = 2.0
     max_text_width = measure_text_cached(self._font_semi_bold, max_text, max_size, max_spacing).x
-    max_pos = rl.Vector2(x + (set_speed_width - max_text_width) / 2, y + 112)
+    max_pos = rl.Vector2(x + (set_speed_width - max_text_width) / 2, y + 120)
     rl.draw_text_ex(
       self._font_semi_bold, max_text,
       rl.Vector2(max_pos.x + 1, max_pos.y + 1),
@@ -202,22 +203,22 @@ class HudRendererBP(HudRendererSP):
       lead_value = str(round(lead_speed * self.speed_conv))
       lead_color = tesla_lead_speed_color(lead_speed, ego_speed)
 
-      for text, text_y, color in (
-        (lead_label, y + 168, palette.max_inactive),
-        (lead_value, y + 215, lead_color),
+      for text, text_y, text_size, color in (
+        (lead_label, y + 184, TESLA_LEAD_LABEL_SIZE, palette.max_inactive),
+        (lead_value, y + 238, TESLA_LEAD_SPEED_SIZE, lead_color),
       ):
         text_width = measure_text_cached(
-          self._font_semi_bold, text, TESLA_LEAD_TEXT_SIZE, max_spacing,
+          self._font_semi_bold, text, text_size, max_spacing,
         ).x
         text_pos = rl.Vector2(x + (set_speed_width - text_width) / 2, text_y)
         rl.draw_text_ex(
           self._font_semi_bold, text,
           rl.Vector2(text_pos.x + 1, text_pos.y + 1),
-          TESLA_LEAD_TEXT_SIZE, max_spacing, TESLA_TEXT_SHADOW,
+          text_size, max_spacing, TESLA_TEXT_SHADOW,
         )
         rl.draw_text_ex(
           self._font_semi_bold, text, text_pos,
-          TESLA_LEAD_TEXT_SIZE, max_spacing, color,
+          text_size, max_spacing, color,
         )
 
   def _render(self, rect: rl.Rectangle) -> None:
