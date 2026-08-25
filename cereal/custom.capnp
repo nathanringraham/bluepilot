@@ -556,7 +556,7 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
   # BluePilot: append-only menu fields. Ordinal 55 was used by an unpublished
   # experiment and remains reserved so Tesla telemetry keeps its wire ordinal.
   reservedVisualMenuField55 @55 :Void;
-  bmsTeslaStyleMode @56 :Bool;  # BPThemePack selected Tesla Light/Dark (ordinal/name retained for API compatibility)
+  bmsTeslaStyleMode @56 :Bool;  # BPThemePack selected Tesla (ordinal/name retained for API compatibility)
   enum LateralMode {
     openpilot @0;  # BP lateral bypassed (disable_BP_lat_UI)
     curvature @1;

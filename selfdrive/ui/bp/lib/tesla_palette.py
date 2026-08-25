@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+import time
 
 import pyray as rl
 
@@ -18,6 +20,14 @@ TESLA_PATH_BLUE_CYCLE = (
   TESLA_PATH_BLUE_LIGHT,
   TESLA_PATH_BLUE_MID,
 )
+
+# ui_state.light_sensor is 100 - wide-camera exposure percentage. Require a
+# sustained low reading before darkening, then a materially brighter reading
+# before returning to Light so tunnels and shadows cannot chatter the palette.
+TESLA_DARK_ENTER_LIGHT = 35.0
+TESLA_LIGHT_ENTER_LIGHT = 50.0
+TESLA_PALETTE_DWELL_S = 3.0
+TESLA_PALETTE_TRANSITION_S = 0.8
 
 
 @dataclass(frozen=True)
@@ -80,8 +90,68 @@ DARK_PALETTE = TeslaPalette(
 )
 
 
-def palette_for_variant(variant: str | None) -> TeslaPalette:
-  return DARK_PALETTE if variant == "dark" else LIGHT_PALETTE
+def blend_color(light: rl.Color, dark: rl.Color, dark_fraction: float) -> rl.Color:
+  amount = max(0.0, min(float(dark_fraction), 1.0))
+  return rl.Color(*[
+    round(a + (b - a) * amount)
+    for a, b in zip((light.r, light.g, light.b, light.a),
+                    (dark.r, dark.g, dark.b, dark.a), strict=True)
+  ])
+
+
+def palette_for_dark_fraction(dark_fraction: float) -> TeslaPalette:
+  amount = max(0.0, min(float(dark_fraction), 1.0))
+  if amount == 0.0:
+    return LIGHT_PALETTE
+  if amount == 1.0:
+    return DARK_PALETTE
+  return TeslaPalette(**{
+    name: blend_color(getattr(LIGHT_PALETTE, name), getattr(DARK_PALETTE, name), amount)
+    for name in TeslaPalette.__dataclass_fields__
+  })
+
+
+class TeslaAutoPaletteState:
+  """Time-based Light/Dark controller shared by every Tesla renderer."""
+
+  def __init__(self):
+    self.dark_mode = False
+    self.dark_fraction = 0.0
+    self._candidate_since: float | None = None
+    self._last_update: float | None = None
+
+  def reset(self) -> None:
+    self.dark_mode = False
+    self.dark_fraction = 0.0
+    self._candidate_since = None
+    self._last_update = None
+
+  def update(self, light_sensor: float, now: float | None = None) -> float:
+    now = time.monotonic() if now is None else float(now)
+    dt = 0.0 if self._last_update is None else max(0.0, min(now - self._last_update, 0.25))
+    self._last_update = now
+
+    valid = math.isfinite(light_sensor) and light_sensor >= 0.0
+    wants_change = valid and (
+      (not self.dark_mode and light_sensor <= TESLA_DARK_ENTER_LIGHT) or
+      (self.dark_mode and light_sensor >= TESLA_LIGHT_ENTER_LIGHT)
+    )
+    if wants_change:
+      if self._candidate_since is None:
+        self._candidate_since = now
+      elif now - self._candidate_since >= TESLA_PALETTE_DWELL_S:
+        self.dark_mode = not self.dark_mode
+        self._candidate_since = None
+    else:
+      self._candidate_since = None
+
+    target = 1.0 if self.dark_mode else 0.0
+    step = dt / TESLA_PALETTE_TRANSITION_S
+    if self.dark_fraction < target:
+      self.dark_fraction = min(target, self.dark_fraction + step)
+    elif self.dark_fraction > target:
+      self.dark_fraction = max(target, self.dark_fraction - step)
+    return self.dark_fraction
 
 
 def tesla_blue_cycle_color(phase: float, alpha: int) -> rl.Color:

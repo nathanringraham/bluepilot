@@ -19,7 +19,7 @@ from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP
 
 def test_non_tesla_theme_delegates_to_unchanged_set_speed_renderer(monkeypatch):
   renderer = object.__new__(HudRendererBP)
-  renderer._tesla_theme_variant = None
+  renderer._tesla_style = False
   rect = rl.Rectangle(0, 0, 2160, 1080)
   calls = []
 

@@ -105,16 +105,14 @@ sections:
   - key: BPThemePack
     widget: multiple_button
     title: '[Visuals] Theme'
-    description: Choose 8-Bit Racer, Tesla Light, Tesla Dark, or a seasonal theme pack. Tesla themes replace the camera scene and temporarily hide conflicting scene overlays; HUD, alerts, driver monitoring, gauges, and safety warnings remain.
+    description: Choose 8-Bit Racer, Tesla, or a seasonal theme pack. Tesla automatically changes between Light and Dark after three seconds of sustained ambient light and temporarily hides conflicting scene overlays; HUD, alerts, driver monitoring, gauges, and safety warnings remain.
     options:
     - value: ''
       label: 'Off'
     - value: rad_racer
       label: 8-Bit Racer
     - value: tesla
-      label: Tesla Light
-    - value: tesla_dark
-      label: Tesla Dark
+      label: Tesla
     - value: april_fools
       label: April Fools
     - value: christmas_week

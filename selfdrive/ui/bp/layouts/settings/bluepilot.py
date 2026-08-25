@@ -214,8 +214,9 @@ class BluePilotLayout(Widget):
     self._theme_pack_btn = ListItem(
       lambda: tr("Theme"),
       description=lambda: tr(" ".join((
-        "Choose 8-Bit Racer, Tesla Light, Tesla Dark, or a seasonal theme pack.",
-        "Tesla themes replace the camera scene and temporarily hide conflicting scene overlays;",
+        "Choose 8-Bit Racer, Tesla, or a seasonal theme pack.",
+        "Tesla changes between Light and Dark after three seconds of sustained ambient light;",
+        "it replaces the camera scene and temporarily hides conflicting scene overlays;",
         "HUD, alerts, driver monitoring, gauges, and safety warnings remain.",
       ))),
       action_item=self._theme_action,
@@ -1081,6 +1082,7 @@ class BluePilotLayout(Widget):
     stored = self._safe_get(self._params, theme_pack.PARAM_KEY) or ""
     if isinstance(stored, bytes):
       stored = stored.decode("utf-8", errors="replace")
+    stored = theme_pack.normalize_selector_value(stored)
     return next((label for label, v in self._theme_entries if v and v.lower() == stored.lower()), tr("Off"))
 
   def _select_theme(self):

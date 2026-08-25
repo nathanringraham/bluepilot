@@ -20,7 +20,7 @@ from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
   tesla_path_mode,
 )
 from openpilot.selfdrive.ui.bp.lib.blindspot_visuals import tesla_blindspot_lane_active
-from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_variant, tesla_path_gradient_colors
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction, tesla_path_gradient_colors
 # BluePilot: seasonal theme packs (colors.json overrides for road colors)
 from openpilot.selfdrive.ui.bp.lib import theme_pack
 
@@ -104,8 +104,8 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
     self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
     self._hide_camera_view = self._bp_params.get_bool("BPHideCameraView")
     self._rainbow_lane_lines = self._bp_params.get_bool("BPRainbowLines")
-    self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
-    self._tesla_style = self._tesla_theme_variant is not None
+    self._tesla_style = theme_pack.tesla_active(self._bp_params)
+    self._tesla_dark_fraction = ui_state.tesla_dark_fraction
     # BluePilot: Rad Racer 8-bit theme (green game road, dash scroll animation state)
     self._rad_racer = theme_pack.rad_racer_active(self._bp_params)
     self._dash_phase = 0.0
@@ -136,8 +136,8 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
       rect.x - CLIP_MARGIN, rect.y - CLIP_MARGIN, rect.width + 2 * CLIP_MARGIN, rect.height + 2 * CLIP_MARGIN
     )
 
-  def set_tesla_style(self, enabled: bool, variant: str | None = None) -> None:
-    if enabled != self._tesla_style or variant != self._tesla_theme_variant:
+  def set_tesla_style(self, enabled: bool, dark_fraction: float = 0.0) -> None:
+    if enabled != self._tesla_style:
       self._transform_dirty = True
       self._tesla_path_visibility = 0.0
     if enabled and not self._tesla_style:
@@ -145,7 +145,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
       self._lead_track_ids = [-1, -1]
       self._lead_raw_values = [None, None]
     self._tesla_style = enabled
-    self._tesla_theme_variant = variant
+    self._tesla_dark_fraction = dark_fraction
 
   def _refresh_bp_params(self) -> None:
     """Refresh cached BluePilot params and invalidate model geometry when visual widths change."""
@@ -154,8 +154,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
       self._transform_dirty = True
     self._hide_camera_view = hide_camera_view
 
-    tesla_variant = theme_pack.tesla_variant(self._bp_params)
-    self.set_tesla_style(tesla_variant is not None, tesla_variant)
+    self.set_tesla_style(theme_pack.tesla_active(self._bp_params), ui_state.tesla_dark_fraction)
 
     rad_racer = theme_pack.rad_racer_active(self._bp_params)
     if rad_racer != self._rad_racer:
@@ -172,6 +171,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
 
   def _render(self, rect: rl.Rectangle):
     sm = ui_state.sm
+    self._tesla_dark_fraction = ui_state.tesla_dark_fraction
 
     if self._tesla_style:
       self._rainbow_v = rainbow_cycle_rate(sm)
@@ -437,7 +437,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
 
   def _draw_tesla_lane_lines(self):
     """Draw quiet, confidence-weighted geometry for the gray environment view."""
-    palette = palette_for_variant(self._tesla_theme_variant)
+    palette = palette_for_dark_fraction(self._tesla_dark_fraction)
     for i, lane_line in enumerate(self._lane_lines):
       blindspot_active = tesla_blindspot_lane_active(ui_state.sm, i)
       if lane_line.projected_points.size == 0 or (not blindspot_active and self._lane_line_probs[i] < 0.25):
@@ -642,7 +642,7 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
   def _draw_path(self, sm):
     """Draw path with status-colored edges."""
     if self._tesla_style:
-      palette = palette_for_variant(self._tesla_theme_variant)
+      palette = palette_for_dark_fraction(self._tesla_dark_fraction)
       if not self._path.projected_points.size:
         return
       self._tesla_path_visibility = approach_tesla_geometry_alpha(

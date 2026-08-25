@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an isolated desktop-UI profile for Tesla Light or Tesla Dark."""
+"""Create an isolated desktop-UI profile for the automatic Tesla theme."""
 
 from __future__ import annotations
 
@@ -20,7 +20,8 @@ from openpilot.system.version import (
 def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("profile", help="Isolated OPENPILOT_PREFIX used by replay and ui.py")
-  parser.add_argument("theme", choices=("light", "dark"))
+  parser.add_argument("theme", nargs="?", choices=("auto", "light", "dark"), default="auto",
+                      help="legacy light/dark arguments are accepted; Tesla now switches automatically")
   parser.add_argument("--metric", action="store_true", help="Render km/h instead of mph")
   args = parser.parse_args()
 
@@ -29,7 +30,7 @@ def main() -> None:
 
   os.environ["OPENPILOT_PREFIX"] = args.profile
   params = Params()
-  theme_value = "tesla_dark" if args.theme == "dark" else "tesla"
+  theme_value = "tesla"
   for key, value in {
     "HasAcceptedTerms": terms_version,
     "CompletedTrainingVersion": training_version,
@@ -51,7 +52,7 @@ def main() -> None:
   if params.get("BPThemePack") != theme_value:
     raise RuntimeError("failed to persist BPThemePack in the simulator profile")
   units = "metric" if args.metric else "imperial"
-  print(f"{args.profile}: Tesla {args.theme.title()} ({units}) simulator profile ready")
+  print(f"{args.profile}: Tesla Auto ({units}) simulator profile ready")
 
 
 if __name__ == "__main__":

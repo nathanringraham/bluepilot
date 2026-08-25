@@ -158,7 +158,9 @@ class TestBluePilotVehicleVisuals:
     assert _find_item(schema, "BPTeslaStyleMode") is None
     item = _find_item(schema, "BPThemePack")
     assert item is not None
-    assert {option["value"] for option in item["options"]} >= {"", "rad_racer", "tesla", "tesla_dark"}
+    values = [option["value"] for option in item["options"]]
+    assert {"", "rad_racer", "tesla"} <= set(values)
+    assert "tesla_dark" not in values
 
   def test_rainbow_lane_lines_ordered_with_visual_toggles(self, schema):
     items = schema["vehicle_settings"]["ford"]["items"]

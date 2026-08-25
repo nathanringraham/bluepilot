@@ -9,7 +9,7 @@ A theme pack is a directory of plain assets — no code:
 Packs are discovered in BUNDLED_DIR (shipped with the repo) and USER_DIR (device-local,
 drop packs in over SSH). Selection is the BPThemePack string param holding the pack's
 directory name; empty/missing/unknown means no theme pack. The special values
-RAD_RACER, TESLA, and TESLA_DARK select built-in code themes instead of packs on disk.
+RAD_RACER and TESLA select built-in code themes instead of packs on disk.
 
 This module is imported by soundd as well as the UI, so pyray is only imported inside
 the texture/color helpers, never at module level.
@@ -25,9 +25,9 @@ from openpilot.common.params import Params
 PARAM_KEY = "BPThemePack"
 AUTO_PARAM_KEY = "BPThemeAutoSeasonal"
 RAD_RACER = "rad_racer"  # param value: the built-in 8-Bit Racer code theme (not a pack on disk)
-TESLA = "tesla"  # existing param value, now labeled Tesla Light
-TESLA_DARK = "tesla_dark"
-TESLA_THEME_VALUES = frozenset((TESLA, TESLA_DARK))
+TESLA = "tesla"
+_TESLA_DARK_LEGACY = "tesla_dark"
+TESLA_THEME_VALUES = frozenset((TESLA, _TESLA_DARK_LEGACY))
 BUILTIN_CODE_THEME_VALUES = frozenset((RAD_RACER, *TESLA_THEME_VALUES))
 BUNDLED_DIR = os.path.join(BASEDIR, "selfdrive", "assets", "bp_themes")
 USER_DIR = "/data/bp_themes"
@@ -118,6 +118,11 @@ def _param_value(params: Params | None = None) -> str:
   return raw.strip()
 
 
+def normalize_selector_value(name: str) -> str:
+  """Map retired built-in values to the selector value that replaces them."""
+  return TESLA if name.lower() == _TESLA_DARK_LEGACY else name
+
+
 def _easter(year: int) -> datetime.date:
   """Gregorian Easter Sunday (Anonymous Gregorian algorithm)."""
   a = year % 19
@@ -203,10 +208,10 @@ def _effective_name(params: Params | None = None) -> str:
   """Selector value, overridden by the date-matched pack while Auto Seasonal is on.
 
   Outside holiday windows (or if the seasonal pack is missing on disk) the manual
-  selection — including Off, Rad Racer, Tesla Light, and Tesla Dark — applies unchanged.
+  selection — including Off, Rad Racer, and Tesla — applies unchanged.
   """
   p = params or Params()
-  name = _param_value(p)
+  name = normalize_selector_value(_param_value(p))
   if p.get_bool(AUTO_PARAM_KEY):
     season = seasonal_pack()
     if season and _resolve(season) is not None:
@@ -223,19 +228,9 @@ def rad_racer_active(params: Params | None = None) -> bool:
   return _effective_name(params).lower() == RAD_RACER
 
 
-def tesla_variant(params: Params | None = None) -> str | None:
-  """The effective Tesla code-theme variant, or None for every other theme."""
-  name = _effective_name(params).lower()
-  if name == TESLA:
-    return "light"
-  if name == TESLA_DARK:
-    return "dark"
-  return None
-
-
 def tesla_active(params: Params | None = None) -> bool:
-  """True when either built-in Tesla environment is the effective theme."""
-  return tesla_variant(params) is not None
+  """True when the automatically day/night-adjusted Tesla environment is active."""
+  return _effective_name(params).lower() == TESLA
 
 
 def selector_entries() -> list[tuple[str, str]]:
@@ -252,7 +247,7 @@ def selector_entries() -> list[tuple[str, str]]:
       return (1, 0, 0, name)
     return (0, win[0].month, win[0].day, name)
 
-  return [("Off", ""), ("8-Bit Racer", RAD_RACER), ("Tesla Light", TESLA), ("Tesla Dark", TESLA_DARK)] + [
+  return [("Off", ""), ("8-Bit Racer", RAD_RACER), ("Tesla", TESLA)] + [
     (name, name) for name in sorted(list_packs(), key=_calendar_key)
   ]
 
@@ -280,17 +275,18 @@ def active_pack_name() -> str:
 
 
 if __name__ == "__main__":
-  # CLI: python3 -m openpilot.selfdrive.ui.bp.lib.theme_pack [pack|off|rad_racer|tesla|tesla_dark] [minimal|camera]
+  # CLI: python3 -m openpilot.selfdrive.ui.bp.lib.theme_pack [pack|off|rad_racer|tesla] [minimal|camera]
   # The optional second arg toggles BPHideCameraView, for previewing over rlog-only replays
   # where the camera feed is black.
   import sys
   _name = sys.argv[1] if len(sys.argv) > 1 else ""
   if _name.lower() == "off":
     _name = ""
+  _name = normalize_selector_value(_name)
   if _name and _name.lower() not in BUILTIN_CODE_THEME_VALUES and _resolve(_name) is None:
     print(
       f"unknown pack '{_name}' (available: {', '.join(list_packs()) or 'none'}, " +
-      f"'{RAD_RACER}', '{TESLA}', or '{TESLA_DARK}')"
+      f"'{RAD_RACER}', or '{TESLA}')"
     )
     sys.exit(1)
   params = Params()

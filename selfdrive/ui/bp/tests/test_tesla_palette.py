@@ -3,7 +3,9 @@ from openpilot.selfdrive.ui.bp.lib.tesla_palette import (
   LIGHT_PALETTE,
   TESLA_PATH_BLUE_DEEP,
   TESLA_PATH_BLUE_LIGHT,
-  palette_for_variant,
+  TeslaAutoPaletteState,
+  blend_color,
+  palette_for_dark_fraction,
   tesla_blue_cycle_color,
   tesla_path_gradient_colors,
 )
@@ -12,6 +14,10 @@ from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import TeslaStyleR
 
 def _brightness(color) -> int:
   return color.r + color.g + color.b
+
+
+def _rgba(color) -> tuple[int, int, int, int]:
+  return color.r, color.g, color.b, color.a
 
 
 def test_dark_environment_is_materially_darker_than_light():
@@ -24,10 +30,73 @@ def test_dark_lane_colors_are_neutral_not_yellow():
     assert max(color.r, color.g, color.b) - min(color.r, color.g, color.b) < 16
 
 
-def test_palette_variant_selection():
-  assert palette_for_variant("light") is LIGHT_PALETTE
-  assert palette_for_variant("dark") is DARK_PALETTE
-  assert palette_for_variant(None) is LIGHT_PALETTE
+def test_palette_blend_uses_exact_endpoints_and_midpoint():
+  assert palette_for_dark_fraction(0.0) is LIGHT_PALETTE
+  assert palette_for_dark_fraction(1.0) is DARK_PALETTE
+  midpoint = palette_for_dark_fraction(0.5)
+  expected_sky = blend_color(LIGHT_PALETTE.sky_top, DARK_PALETTE.sky_top, 0.5)
+  expected_road = blend_color(LIGHT_PALETTE.road_surface, DARK_PALETTE.road_surface, 0.5)
+  assert _rgba(midpoint.sky_top) == _rgba(expected_sky)
+  assert _rgba(midpoint.road_surface) == _rgba(expected_road)
+
+
+def _finish_transition(state: TeslaAutoPaletteState, light_sensor: float, start: float) -> float:
+  result = state.dark_fraction
+  for step in range(1, 5):
+    result = state.update(light_sensor, start + step * 0.25)
+  return result
+
+
+def test_auto_palette_requires_three_continuous_dark_seconds():
+  state = TeslaAutoPaletteState()
+
+  assert state.update(20.0, 0.0) == 0.0
+  assert state.update(20.0, 2.99) == 0.0
+  assert not state.dark_mode
+  assert state.update(20.0, 3.0) > 0.0
+  assert state.dark_mode
+  assert _finish_transition(state, 20.0, 3.0) == 1.0
+
+
+def test_auto_palette_rejects_short_shadow_and_uses_hysteresis():
+  state = TeslaAutoPaletteState()
+  state.update(20.0, 0.0)
+  state.update(20.0, 2.9)
+  state.update(80.0, 3.0)
+  state.update(20.0, 5.0)
+  assert state.update(20.0, 7.9) == 0.0
+  assert not state.dark_mode
+
+  state.update(20.0, 8.0)
+  assert state.dark_mode
+  _finish_transition(state, 20.0, 8.0)
+  state.update(42.0, 20.0)  # Between thresholds: remain Dark indefinitely.
+  state.update(42.0, 30.0)
+  assert state.dark_mode
+
+
+def test_auto_palette_requires_sustained_brightness_to_return_light():
+  state = TeslaAutoPaletteState()
+  state.update(20.0, 0.0)
+  state.update(20.0, 3.0)
+  _finish_transition(state, 20.0, 3.0)
+
+  state.update(80.0, 5.0)
+  state.update(80.0, 7.99)
+  assert state.dark_mode
+  assert state.update(80.0, 8.0) < 1.0
+  assert not state.dark_mode
+  assert _finish_transition(state, 80.0, 8.0) == 0.0
+
+
+def test_auto_palette_holds_last_state_when_sensor_is_unavailable():
+  state = TeslaAutoPaletteState()
+  state.update(20.0, 0.0)
+  state.update(20.0, 3.0)
+  before = state.dark_fraction
+
+  assert state.update(-1.0, 3.25) >= before
+  assert state.dark_mode
 
 
 def test_only_max_label_uses_longitudinal_state_color():

@@ -91,9 +91,9 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
 
     # BluePilot: display-only Tesla-style environment layer. It replaces the
     # camera/model scene, while the normal HUD and safety overlays remain above it.
-    self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
-    self._tesla_style_renderer = TeslaStyleRendererBP(theme_variant=self._tesla_theme_variant or "light")
-    self._tesla_style_enabled = self._tesla_theme_variant is not None
+    self._tesla_style_renderer = TeslaStyleRendererBP(dark_fraction=ui_state.tesla_dark_fraction)
+    self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
+    self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
 
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
@@ -115,10 +115,12 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
       except (TypeError, ValueError):
         self._cached_gauge_size = 2
       self._hybrid_gauge_style = GaugeStyle(self._bp_params.get("FordPrefGaugeStyle", return_default=True) or 0)
-      self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
-      self._tesla_style_enabled = self._tesla_theme_variant is not None
-      self._tesla_style_renderer.set_theme_variant(self._tesla_theme_variant)
-      self.model_renderer.set_tesla_style(self._tesla_style_enabled, self._tesla_theme_variant)
+      self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
+      self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
+
+    # Ambient palette changes are frame-driven; Params selection remains polled.
+    self._tesla_style_renderer.set_dark_fraction(ui_state.tesla_dark_fraction)
+    self.model_renderer.set_tesla_style(self._tesla_style_enabled, ui_state.tesla_dark_fraction)
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()

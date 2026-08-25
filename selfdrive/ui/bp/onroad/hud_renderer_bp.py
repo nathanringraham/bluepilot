@@ -9,7 +9,7 @@ from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP,
 from openpilot.selfdrive.ui.bp.onroad.exp_button_bp import ExpButtonBP
 from openpilot.selfdrive.ui.bp.lib import theme_pack
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import longitudinal_control_active
-from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_variant
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -92,7 +92,7 @@ class HudRendererBP(HudRendererSP):
     self._show_brake_status = self._bp_params.get_bool("ShowBrakeStatus")
     self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
     self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
-    self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
+    self._tesla_style = theme_pack.tesla_active(self._bp_params)
     # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
     self._lateral_mode = None
 
@@ -113,7 +113,7 @@ class HudRendererBP(HudRendererSP):
       self._show_brake_status = self._bp_params.get_bool("ShowBrakeStatus")
       self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
       self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
-      self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
+      self._tesla_style = theme_pack.tesla_active(self._bp_params)
 
     if self._show_lateral_control:
       sm = ui_state.sm
@@ -137,14 +137,14 @@ class HudRendererBP(HudRendererSP):
     bp_ui_log.state("HudRendererBP", "brakes_on", self._brakes_on)
 
   def _draw_set_speed(self, rect: rl.Rectangle) -> None:
-    if self._tesla_theme_variant is None:
+    if not self._tesla_style:
       super()._draw_set_speed(rect)
       return
 
     # Tesla presents set speed as an unboxed number over a compact MAX label.
     # Only MAX changes state color; the centered current-speed renderer is untouched.
     self._get_icbm_status()
-    palette = palette_for_variant(self._tesla_theme_variant)
+    palette = palette_for_dark_fraction(ui_state.tesla_dark_fraction)
 
     set_speed_width = UI_CONFIG.set_speed_width_metric if ui_state.is_metric else UI_CONFIG.set_speed_width_imperial
     x = rect.x + 60 + (UI_CONFIG.set_speed_width_imperial - set_speed_width) // 2

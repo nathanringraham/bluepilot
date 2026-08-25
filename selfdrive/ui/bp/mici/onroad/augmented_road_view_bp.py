@@ -99,13 +99,13 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     # BluePilot: MICI uses the shared display-only environment renderer with a
     # content-relative projection. Keep the compact stock lead/radar UI instead
     # of layering Tesla actor silhouettes onto the comma 4's smaller canvas.
-    self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
     self._tesla_style_renderer = TeslaStyleRendererBP(
       relative_projection=True,
       show_lead_vehicle=False,
-      theme_variant=self._tesla_theme_variant or "light",
+      dark_fraction=ui_state.tesla_dark_fraction,
     )
-    self._tesla_style_enabled = self._tesla_theme_variant is not None
+    self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
+    self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
 
     self._theme_param_counter = 0
 
@@ -159,10 +159,11 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     self._theme_param_counter += 1
     if self._theme_param_counter >= 60:
       self._theme_param_counter = 0
-      self._tesla_theme_variant = theme_pack.tesla_variant(self._bp_params)
-      self._tesla_style_enabled = self._tesla_theme_variant is not None
-      self._tesla_style_renderer.set_theme_variant(self._tesla_theme_variant)
-      self._model_renderer.set_tesla_style(self._tesla_style_enabled, self._tesla_theme_variant)
+      self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
+      self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
+
+    self._tesla_style_renderer.set_dark_fraction(ui_state.tesla_dark_fraction)
+    self._model_renderer.set_tesla_style(self._tesla_style_enabled, ui_state.tesla_dark_fraction)
 
     # BluePilot: Tesla-style mode owns only the environment layer. The normal
     # camera and all existing scene modes remain untouched when the flag is off.

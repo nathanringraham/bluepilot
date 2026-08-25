@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 import pyray as rl
 
-from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_variant
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import blend_color, palette_for_dark_fraction
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import tesla_geometry_reliable
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
@@ -309,19 +309,22 @@ def project_car_space_unclipped(transform: np.ndarray, in_x: float,
 
 class TeslaStyleRendererBP:
   def __init__(self, relative_projection: bool = False, show_lead_vehicle: bool = True,
-               theme_variant: str = "light"):
+               dark_fraction: float = 0.0):
     self.relative_projection = relative_projection
     self.show_lead_vehicle = show_lead_vehicle
-    self._theme_variant = theme_variant
+    self._dark_fraction = dark_fraction
+    self._enabled = False
     self._lead_fade = LeadFadeState()
     self._road_geometry = RoadGeometryState()
 
-  def set_theme_variant(self, variant: str | None) -> None:
-    new_variant = variant or "light"
-    if variant is None or new_variant != self._theme_variant:
+  def set_enabled(self, enabled: bool) -> None:
+    if enabled != self._enabled:
       self._lead_fade.reset()
       self._road_geometry.reset()
-    self._theme_variant = new_variant
+    self._enabled = enabled
+
+  def set_dark_fraction(self, dark_fraction: float) -> None:
+    self._dark_fraction = max(0.0, min(float(dark_fraction), 1.0))
 
   def _to_screen(self, point, rect: rl.Rectangle):
     if point is None:
@@ -380,7 +383,7 @@ class TeslaStyleRendererBP:
     return self._road_geometry.update(target, use_neutral, gui_app.target_fps)
 
   def render_background(self, rect: rl.Rectangle, model_renderer) -> None:
-    palette = palette_for_variant(self._theme_variant)
+    palette = palette_for_dark_fraction(self._dark_fraction)
     model_renderer.prepare_projection(rect)
     road = self._road_polygon(rect, model_renderer)
     far_points = road[np.argsort(road[:, 1])[:2]] if len(road) >= 2 else np.empty((0, 2))
@@ -448,21 +451,20 @@ class TeslaStyleRendererBP:
                          opacity: float = 1.0) -> None:
     """Draw a low Tesla-like sedan from a slightly elevated rear view."""
     height = width * LEAD_HEIGHT_TO_WIDTH
-    dark = self._theme_variant == "dark"
 
     def fade(color: rl.Color) -> rl.Color:
       return color_with_opacity(color, opacity)
 
-    body = fade(rl.Color(150, 158, 163, 255) if dark else rl.Color(162, 170, 175, 255))
-    highlight = fade(rl.Color(190, 197, 201, 255) if dark else rl.Color(200, 205, 208, 255))
-    shade = fade(rl.Color(75, 85, 92, 255) if dark else rl.Color(100, 110, 116, 255))
-    glass_color = rl.Color(28, 39, 47, 245) if dark else rl.Color(45, 56, 63, 240)
+    body = fade(blend_color(rl.Color(162, 170, 175, 255), rl.Color(150, 158, 163, 255), self._dark_fraction))
+    highlight = fade(blend_color(rl.Color(200, 205, 208, 255), rl.Color(190, 197, 201, 255), self._dark_fraction))
+    shade = fade(blend_color(rl.Color(100, 110, 116, 255), rl.Color(75, 85, 92, 255), self._dark_fraction))
+    glass_color = blend_color(rl.Color(45, 56, 63, 240), rl.Color(28, 39, 47, 245), self._dark_fraction)
     glass = fade(glass_color)
-    outline = fade(rl.Color(205, 212, 216, 245) if dark else rl.Color(82, 92, 98, 245))
+    outline = fade(blend_color(rl.Color(82, 92, 98, 245), rl.Color(205, 212, 216, 245), self._dark_fraction))
 
     rl.draw_ellipse(int(cx), int(base_y + height * 0.02),
                     max(1, int(width * 0.44)), max(1, int(height * 0.07)),
-                    fade(rl.Color(0, 0, 0, 72 if dark else 54)))
+                    fade(blend_color(rl.Color(0, 0, 0, 54), rl.Color(0, 0, 0, 72), self._dark_fraction)))
 
     body_shape = self._scaled_points(cx, base_y, width, height, SEDAN_BODY_POINTS)
     self._draw_poly(body_shape, body)
