@@ -15,8 +15,11 @@ from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   TESLA_MADS_LAMP_RADIUS,
   TESLA_MAX_LABEL_SIZE,
   TESLA_SET_SPEED_SIZE,
+  TESLA_STATUS_LAMP_BEZEL,
+  TESLA_STATUS_LAMP_RADIUS,
   TESLA_STATUS_LABEL_SIZE,
   HudRendererBP,
+  tesla_column_text_x,
   tesla_lead_speed_color,
   tesla_lead_speed_state,
   tesla_mads_active,
@@ -74,7 +77,18 @@ def test_tesla_max_and_lead_typography_is_enlarged() -> None:
   assert TESLA_MAX_LABEL_SIZE == TESLA_STATUS_LABEL_SIZE
   assert TESLA_LEAD_LABEL_SIZE == TESLA_STATUS_LABEL_SIZE
   assert TESLA_LEAD_SPEED_SIZE == 54
-  assert TESLA_MADS_LAMP_RADIUS < TESLA_CONF_BALL_RADIUS < TESLA_STATUS_LABEL_SIZE
+  assert TESLA_CONF_BALL_RADIUS == TESLA_STATUS_LAMP_RADIUS
+  assert TESLA_MADS_LAMP_RADIUS == TESLA_STATUS_LAMP_RADIUS
+  assert TESLA_STATUS_LAMP_RADIUS == 24
+  assert TESLA_STATUS_LAMP_BEZEL == 5
+  assert TESLA_STATUS_LAMP_RADIUS < TESLA_STATUS_LABEL_SIZE
+
+
+def test_tesla_left_column_rows_share_one_centerline() -> None:
+  column_center = 146.0
+  for text_width in (28.0, 67.5, 104.0, 172.0):
+    left = tesla_column_text_x(column_center, text_width)
+    assert left + text_width / 2 == column_center
 
 
 def test_confidence_ball_presentation_is_mutually_exclusive() -> None:

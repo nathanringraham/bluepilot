@@ -26,13 +26,20 @@ TESLA_STATUS_LABEL_SIZE = 48
 TESLA_MAX_LABEL_SIZE = TESLA_STATUS_LABEL_SIZE
 TESLA_LEAD_LABEL_SIZE = TESLA_STATUS_LABEL_SIZE
 TESLA_LEAD_SPEED_SIZE = 54
-TESLA_CONF_BALL_RADIUS = 24
-TESLA_MADS_LAMP_RADIUS = 13
+TESLA_STATUS_LAMP_RADIUS = 24
+TESLA_STATUS_LAMP_BEZEL = 5
+TESLA_CONF_BALL_RADIUS = TESLA_STATUS_LAMP_RADIUS
+TESLA_MADS_LAMP_RADIUS = TESLA_STATUS_LAMP_RADIUS
 TESLA_TEXT_SHADOW = rl.Color(0, 0, 0, 105)
 TESLA_LEAD_FASTER_COLOR = rl.Color(80, 216, 112, 255)
 TESLA_LEAD_SLOW_YELLOW = rl.Color(255, 211, 30, 255)
 TESLA_LEAD_SLOW_RED = rl.Color(235, 62, 52, 255)
 TESLA_LEAD_FULL_RED_DELTA_MPS = 15.0 / 2.2369362920544
+
+
+def tesla_column_text_x(column_center_x: float, text_width: float) -> float:
+  """Return a left edge that keeps every Tesla HUD row on one centerline."""
+  return column_center_x - text_width / 2
 
 
 def tesla_mads_active(sm) -> bool:
@@ -170,6 +177,7 @@ class HudRendererBP(HudRendererSP):
     set_speed_width = UI_CONFIG.set_speed_width_metric if ui_state.is_metric else UI_CONFIG.set_speed_width_imperial
     x = rect.x + 60 + (UI_CONFIG.set_speed_width_imperial - set_speed_width) // 2
     y = rect.y + 45
+    column_center_x = x + set_speed_width / 2
     longitudinal_active = self.is_cruise_set and longitudinal_control_active(ui_state.sm, ui_state.status)
     value_color = palette.set_speed
     max_color = palette.max_active if longitudinal_active else palette.max_inactive
@@ -187,7 +195,7 @@ class HudRendererBP(HudRendererSP):
       set_speed_text = str(round(self.set_speed))
 
     speed_text_width = measure_text_cached(self._font_medium, set_speed_text, TESLA_SET_SPEED_SIZE).x
-    speed_pos = rl.Vector2(x + (set_speed_width - speed_text_width) / 2, y - 9)
+    speed_pos = rl.Vector2(tesla_column_text_x(column_center_x, speed_text_width), y - 9)
     rl.draw_text_ex(
       self._font_medium, set_speed_text,
       rl.Vector2(speed_pos.x + 2, speed_pos.y + 2),
@@ -205,7 +213,7 @@ class HudRendererBP(HudRendererSP):
     max_size = 34 if self.show_icbm_status else TESLA_MAX_LABEL_SIZE
     max_spacing = 2.0
     max_text_width = measure_text_cached(self._font_semi_bold, max_text, max_size, max_spacing).x
-    max_pos = rl.Vector2(x + (set_speed_width - max_text_width) / 2, y + 120)
+    max_pos = rl.Vector2(tesla_column_text_x(column_center_x, max_text_width), y + 120)
     rl.draw_text_ex(
       self._font_semi_bold, max_text,
       rl.Vector2(max_pos.x + 1, max_pos.y + 1),
@@ -220,7 +228,7 @@ class HudRendererBP(HudRendererSP):
 
     def draw_column_text(text: str, text_y: float, text_size: int, color: rl.Color) -> None:
       text_width = measure_text_cached(self._font_semi_bold, text, text_size, max_spacing).x
-      text_pos = rl.Vector2(x + (set_speed_width - text_width) / 2, text_y)
+      text_pos = rl.Vector2(tesla_column_text_x(column_center_x, text_width), text_y)
       rl.draw_text_ex(
         self._font_semi_bold, text,
         rl.Vector2(text_pos.x + 1, text_pos.y + 1),
@@ -240,22 +248,32 @@ class HudRendererBP(HudRendererSP):
       ):
         draw_column_text(text, text_y, text_size, color)
 
+    def draw_status_lamp(center_y: float, top: rl.Color, bottom: rl.Color) -> None:
+      # Tesla-style recessed bezel and glass highlight shared by both indicators.
+      draw_shader_circle_gradient(
+        column_center_x, center_y, TESLA_STATUS_LAMP_RADIUS + TESLA_STATUS_LAMP_BEZEL,
+        rl.Color(78, 84, 89, 255), rl.Color(18, 21, 23, 255),
+      )
+      draw_shader_circle_gradient(
+        column_center_x, center_y, TESLA_STATUS_LAMP_RADIUS, top, bottom,
+      )
+      rl.draw_circle(
+        int(column_center_x - TESLA_STATUS_LAMP_RADIUS * 0.3),
+        int(center_y - TESLA_STATUS_LAMP_RADIUS * 0.3),
+        max(3, round(TESLA_STATUS_LAMP_RADIUS * 0.16)),
+        rl.Color(255, 255, 255, 120),
+      )
+
     if self._tesla_confidence_enabled:
-      column_center_x = x + set_speed_width / 2
       draw_column_text(tr("CONF."), y + 306, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
       top, bottom = self._tesla_confidence_colors
-      draw_shader_circle_gradient(column_center_x, y + 390, TESLA_CONF_BALL_RADIUS, top, bottom)
+      draw_status_lamp(y + 390, top, bottom)
 
       draw_column_text(tr("MADS"), y + 430, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
       lamp_y = y + 505
-      draw_shader_circle_gradient(
-        column_center_x, lamp_y, TESLA_MADS_LAMP_RADIUS + 4,
-        rl.Color(64, 69, 73, 255), rl.Color(20, 23, 25, 255),
-      )
       lamp_top = rl.Color(91, 235, 139, 255) if self._tesla_mads_active else rl.Color(255, 106, 88, 255)
       lamp_bottom = rl.Color(18, 158, 77, 255) if self._tesla_mads_active else rl.Color(190, 35, 39, 255)
-      draw_shader_circle_gradient(column_center_x, lamp_y, TESLA_MADS_LAMP_RADIUS, lamp_top, lamp_bottom)
-      rl.draw_circle(int(column_center_x - 4), int(lamp_y - 4), 3, rl.Color(255, 255, 255, 125))
+      draw_status_lamp(lamp_y, lamp_top, lamp_bottom)
 
   def _render(self, rect: rl.Rectangle) -> None:
     # BluePilot: Draw header gradient at full content width (not offset by confidence ball)
