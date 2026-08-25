@@ -2,20 +2,27 @@ from types import SimpleNamespace
 
 import pyray as rl
 
+from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import confidence_ball_colors
+from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import confidence_ball_presentation
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
+  TESLA_CONF_BALL_RADIUS,
   TESLA_LEAD_FASTER_COLOR,
   TESLA_LEAD_FULL_RED_DELTA_MPS,
   TESLA_LEAD_LABEL_SIZE,
   TESLA_LEAD_SLOW_RED,
   TESLA_LEAD_SLOW_YELLOW,
   TESLA_LEAD_SPEED_SIZE,
+  TESLA_MADS_LAMP_RADIUS,
   TESLA_MAX_LABEL_SIZE,
   TESLA_SET_SPEED_SIZE,
+  TESLA_STATUS_LABEL_SIZE,
   HudRendererBP,
   tesla_lead_speed_color,
   tesla_lead_speed_state,
+  tesla_mads_active,
 )
 from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP
+from openpilot.selfdrive.ui.ui_state import UIStatus
 
 
 def test_non_tesla_theme_delegates_to_unchanged_set_speed_renderer(monkeypatch):
@@ -36,15 +43,25 @@ def test_non_tesla_theme_delegates_to_unchanged_set_speed_renderer(monkeypatch):
 class FakeSubMaster:
   def __init__(self, *, lead_status=True, radar_alive=True, radar_valid=True,
                car_alive=True, car_valid=True, d_rel=30.0, v_lead=20.0,
-               v_lead_k=None, v_ego=18.0):
+               v_lead_k=None, v_ego=18.0, mads_alive=True, mads_valid=True,
+               mads_enabled=True):
     v_lead_k = v_lead if v_lead_k is None else v_lead_k
-    self.alive = {"radarState": radar_alive, "carState": car_alive}
-    self.valid = {"radarState": radar_valid, "carState": car_valid}
+    self.alive = {
+      "radarState": radar_alive,
+      "carState": car_alive,
+      "selfdriveStateSP": mads_alive,
+    }
+    self.valid = {
+      "radarState": radar_valid,
+      "carState": car_valid,
+      "selfdriveStateSP": mads_valid,
+    }
     self.messages = {
       "radarState": SimpleNamespace(leadOne=SimpleNamespace(
         status=lead_status, dRel=d_rel, vLead=v_lead, vLeadK=v_lead_k,
       )),
       "carState": SimpleNamespace(vEgo=v_ego),
+      "selfdriveStateSP": SimpleNamespace(mads=SimpleNamespace(enabled=mads_enabled)),
     }
 
   def __getitem__(self, service):
@@ -53,9 +70,43 @@ class FakeSubMaster:
 
 def test_tesla_max_and_lead_typography_is_enlarged() -> None:
   assert TESLA_SET_SPEED_SIZE == 112
-  assert TESLA_MAX_LABEL_SIZE == 46
-  assert TESLA_LEAD_LABEL_SIZE == 48
+  assert TESLA_STATUS_LABEL_SIZE == 48
+  assert TESLA_MAX_LABEL_SIZE == TESLA_STATUS_LABEL_SIZE
+  assert TESLA_LEAD_LABEL_SIZE == TESLA_STATUS_LABEL_SIZE
   assert TESLA_LEAD_SPEED_SIZE == 54
+  assert TESLA_MADS_LAMP_RADIUS < TESLA_CONF_BALL_RADIUS < TESLA_STATUS_LABEL_SIZE
+
+
+def test_confidence_ball_presentation_is_mutually_exclusive() -> None:
+  assert confidence_ball_presentation(False, False) == (False, False)
+  assert confidence_ball_presentation(False, True) == (False, False)
+  assert confidence_ball_presentation(True, False) == (True, False)
+  assert confidence_ball_presentation(True, True) == (False, True)
+
+
+def test_tesla_mads_state_uses_published_signal() -> None:
+  assert tesla_mads_active(FakeSubMaster(mads_enabled=True))
+  assert not tesla_mads_active(FakeSubMaster(mads_enabled=False))
+  assert not tesla_mads_active(FakeSubMaster(mads_alive=False))
+  assert not tesla_mads_active(FakeSubMaster(mads_valid=False))
+
+
+def _rgba(color: rl.Color) -> tuple[int, int, int, int]:
+  return color.r, color.g, color.b, color.a
+
+
+def test_static_confidence_ball_reuses_bluepilot_color_scheme() -> None:
+  high = confidence_ball_colors(0.8, UIStatus.ENGAGED)
+  medium = confidence_ball_colors(0.4, UIStatus.LAT_ONLY)
+  low = confidence_ball_colors(0.1, UIStatus.LONG_ONLY)
+  override = confidence_ball_colors(0.8, UIStatus.OVERRIDE)
+  disengaged = confidence_ball_colors(0.8, UIStatus.DISENGAGED)
+
+  assert tuple(map(_rgba, high)) == ((0, 255, 204, 255), (0, 255, 38, 255))
+  assert tuple(map(_rgba, medium)) == ((255, 200, 0, 255), (255, 115, 0, 255))
+  assert tuple(map(_rgba, low)) == ((255, 0, 21, 255), (255, 0, 89, 255))
+  assert tuple(map(_rgba, override)) == ((255, 255, 255, 255), (82, 82, 82, 255))
+  assert tuple(map(_rgba, disengaged)) == ((50, 50, 50, 255), (13, 13, 13, 255))
 
 
 def test_tesla_lead_speed_uses_fused_primary_lead() -> None:

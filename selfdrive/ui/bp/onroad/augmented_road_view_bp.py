@@ -6,7 +6,7 @@ from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
 from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
-from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP
+from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP, tesla_mads_active
 from openpilot.selfdrive.ui.bp.onroad.alert_renderer_bp import AlertRendererBP
 from openpilot.selfdrive.ui.bp.onroad.model_renderer_bp import ModelRendererBP
 from openpilot.selfdrive.ui.bp.onroad.driver_state_bp import DriverStateRendererBP
@@ -49,6 +49,11 @@ TORQUE_STRIP_GAP = 3       # Gap between strip bottom and gauge content top
 
 # Full screen reference for sidebar detection
 FULL_CONTENT_WIDTH = 2100.0
+
+
+def confidence_ball_presentation(enabled: bool, tesla_style: bool) -> tuple[bool, bool]:
+  """Choose exactly one confidence-ball presentation for the active scene."""
+  return enabled and not tesla_style, enabled and tesla_style
 
 
 class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixin):
@@ -134,7 +139,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     )
 
     # BluePilot: Offset rect pushes HUD/driver state/alerts right of the confidence ball
-    ball_offset = (ConfidenceBallTiciBP.BALL_WIDTH + BALL_BORDER_MARGIN) if self._show_confidence_ball else 0
+    show_edge_confidence_ball, show_tesla_confidence = confidence_ball_presentation(
+      self._show_confidence_ball, self._tesla_style_enabled,
+    )
+    ball_offset = (ConfidenceBallTiciBP.BALL_WIDTH + BALL_BORDER_MARGIN) if show_edge_confidence_ball else 0
     ui_rect = rl.Rectangle(
       self._content_rect.x + ball_offset,
       self._content_rect.y,
@@ -183,7 +191,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
 
     # BluePilot: Render confidence ball on left side (narrow rect = ball strip only, not full width)
     confidence_ball_rect = None
-    if self._show_confidence_ball:
+    if show_edge_confidence_ball:
       ball_strip_width = ConfidenceBallTiciBP.BALL_WIDTH + BALL_BORDER_MARGIN
       # Semi-transparent dark backdrop so ball is visible against bright camera feed
       rl.draw_rectangle_gradient_h(
@@ -200,6 +208,15 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
         ball_strip_width,
         self._content_rect.height,
       )
+
+    if show_tesla_confidence:
+      self._confidence_ball.update_state_only()
+      confidence_top, confidence_bottom = self._confidence_ball.current_colors()
+      self._hud_renderer.set_tesla_confidence_status(
+        True, confidence_top, confidence_bottom, tesla_mads_active(ui_state.sm),
+      )
+    else:
+      self._hud_renderer.set_tesla_confidence_status(False)
 
     # BluePilot: Render HUD, driver state before gauges and alerts
     self._hud_renderer.set_gradient_rect(self._content_rect)
@@ -253,7 +270,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     alert = self.alert_renderer.get_alert(ui_state.sm)
     alert_rect = (
       self._content_rect
-      if (alert and alert.size == log.SelfdriveState.AlertSize.full and self._show_confidence_ball)
+      if (alert and alert.size == log.SelfdriveState.AlertSize.full and show_edge_confidence_ball)
       else ui_rect
     )
     self.alert_renderer.render(alert_rect)
@@ -360,7 +377,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     if battery_rect is not None and pf_visible:
       # Both gauges visible: horizontally center the combined container
       pf_rect = self._power_flow_gauge.get_gauge_rect(
-        content_rect, sidebar_visible, self._show_confidence_ball,
+        content_rect, sidebar_visible, ball_offset > 0,
       )
 
       total_inner_width = battery_rect.width + SHARED_INNER_GAP + pf_rect.width
@@ -416,7 +433,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     elif pf_visible:
       # Only power flow visible: shared container with optional strip
       pf_rect = self._power_flow_gauge.get_gauge_rect(
-        content_rect, sidebar_visible, self._show_confidence_ball,
+        content_rect, sidebar_visible, ball_offset > 0,
       )
 
       total_height = pf_rect.height + strip_allocation

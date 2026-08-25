@@ -3,7 +3,22 @@ from openpilot.selfdrive.ui.mici.onroad.confidence_ball import ConfidenceBall
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 # BluePilot: GPU circle shader moved to BP module after upstream removal
 from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
-from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
+
+
+def confidence_ball_colors(confidence: float, status: UIStatus, demo: bool = False) -> tuple[rl.Color, rl.Color]:
+  """Return BluePilot's existing confidence gradient without positional behavior."""
+  if status in (UIStatus.LAT_ONLY, UIStatus.LONG_ONLY, UIStatus.ENGAGED) or demo:
+    if confidence > 0.5:
+      return rl.Color(0, 255, 204, 255), rl.Color(0, 255, 38, 255)
+    if confidence > 0.2:
+      return rl.Color(255, 200, 0, 255), rl.Color(255, 115, 0, 255)
+    return rl.Color(255, 0, 21, 255), rl.Color(255, 0, 89, 255)
+
+  if status == UIStatus.OVERRIDE:
+    return rl.Color(255, 255, 255, 255), rl.Color(82, 82, 82, 255)
+
+  return rl.Color(50, 50, 50, 255), rl.Color(13, 13, 13, 255)
+
 
 class ConfidenceBallBP(ConfidenceBall):
   def __init__(self, demo: bool = False, radius: float=24, width: float = 60, align_right: bool = True):
@@ -66,25 +81,7 @@ class ConfidenceBallBP(ConfidenceBall):
     dot_height = bottom_position - (normalized * range_height) + self._status_dot_radius
     dot_height = content_rect.y + dot_height
 
-    # confidence zones
-    if ui_state.status in (UIStatus.LAT_ONLY, UIStatus.LONG_ONLY, UIStatus.ENGAGED) or self._demo:
-      if self._confidence_filter.x > 0.5:
-        top_dot_color = rl.Color(0, 255, 204, 255)
-        bottom_dot_color = rl.Color(0, 255, 38, 255)
-      elif self._confidence_filter.x > 0.2:
-        top_dot_color = rl.Color(255, 200, 0, 255)
-        bottom_dot_color = rl.Color(255, 115, 0, 255)
-      else:
-        top_dot_color = rl.Color(255, 0, 21, 255)
-        bottom_dot_color = rl.Color(255, 0, 89, 255)
-
-    elif ui_state.status == UIStatus.OVERRIDE:
-      top_dot_color = rl.Color(255, 255, 255, 255)
-      bottom_dot_color = rl.Color(82, 82, 82, 255)
-
-    else:
-      top_dot_color = rl.Color(50, 50, 50, 255)
-      bottom_dot_color = rl.Color(13, 13, 13, 255)
+    top_dot_color, bottom_dot_color = self.current_colors()
 
     if content_rect.width < 2 * self._status_dot_radius:
       # Bar is narrower than ball diameter - position so left edge of ball is at bar left edge
@@ -105,6 +102,13 @@ class ConfidenceBallBP(ConfidenceBall):
 
     self._draw_circle(ball_center_x, dot_height, self._status_dot_radius,
                       top_dot_color, bottom_dot_color)
+
+  def update_state_only(self) -> None:
+    """Advance confidence filtering when a theme owns the visual rendering."""
+    self._update_state()
+
+  def current_colors(self) -> tuple[rl.Color, rl.Color]:
+    return confidence_ball_colors(self._confidence_filter.x, ui_state.status, self._demo)
 
   def _draw_circle(self, cx: float, cy: float, radius: float, top: rl.Color, bottom: rl.Color):
     """Use GPU shader for smooth anti-aliased circle on TICI's larger display."""
