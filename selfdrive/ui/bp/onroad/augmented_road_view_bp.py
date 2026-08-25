@@ -6,7 +6,7 @@ from openpilot.selfdrive.ui import UI_BORDER_SIZE
 from openpilot.selfdrive.ui.onroad.augmented_road_view import AugmentedRoadView
 from openpilot.selfdrive.ui.bp.onroad.cameraview_bp import CameraViewBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
-from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP, tesla_mads_active
+from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import HudRendererBP
 from openpilot.selfdrive.ui.bp.onroad.alert_renderer_bp import AlertRendererBP
 from openpilot.selfdrive.ui.bp.onroad.model_renderer_bp import ModelRendererBP
 from openpilot.selfdrive.ui.bp.onroad.driver_state_bp import DriverStateRendererBP
@@ -25,6 +25,7 @@ from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 # BluePilot: unified theme selector (BPThemePack param)
 from openpilot.selfdrive.ui.bp.lib import theme_pack, theme_scene
+from openpilot.selfdrive.ui.bp.lib.tesla_status import tesla_mads_active
 
 
 class GaugeStyle(IntEnum):

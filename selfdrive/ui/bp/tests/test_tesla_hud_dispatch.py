@@ -3,6 +3,11 @@ from types import SimpleNamespace
 import pyray as rl
 
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import confidence_ball_colors
+from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import (
+  MICI_TESLA_STATUS_LAMP_BEZEL,
+  MICI_TESLA_STATUS_LAMP_RADIUS,
+  mici_tesla_status_layout,
+)
 from openpilot.selfdrive.ui.bp.onroad.augmented_road_view_bp import confidence_ball_presentation
 from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   TESLA_CONF_BALL_RADIUS,
@@ -22,8 +27,8 @@ from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   tesla_column_text_x,
   tesla_lead_speed_color,
   tesla_lead_speed_state,
-  tesla_mads_active,
 )
+from openpilot.selfdrive.ui.bp.lib.tesla_status import tesla_mads_active
 from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP
 from openpilot.selfdrive.ui.ui_state import UIStatus
 
@@ -89,6 +94,19 @@ def test_tesla_left_column_rows_share_one_centerline() -> None:
   for text_width in (28.0, 67.5, 104.0, 172.0):
     left = tesla_column_text_x(column_center, text_width)
     assert left + text_width / 2 == column_center
+
+
+def test_c4_tesla_status_stack_fits_confidence_strip() -> None:
+  rect = rl.Rectangle(476, 0, 60, 240)
+  center_x, conf_label_y, conf_lamp_y, mads_label_y, mads_lamp_y = mici_tesla_status_layout(rect)
+
+  assert center_x == rect.x + rect.width / 2
+  assert conf_label_y < conf_lamp_y < mads_label_y < mads_lamp_y
+  outer_radius = MICI_TESLA_STATUS_LAMP_RADIUS + MICI_TESLA_STATUS_LAMP_BEZEL
+  assert conf_lamp_y - outer_radius > conf_label_y
+  assert mads_lamp_y + outer_radius < rect.y + rect.height
+  assert MICI_TESLA_STATUS_LAMP_RADIUS == 15
+  assert MICI_TESLA_STATUS_LAMP_BEZEL == 3
 
 
 def test_confidence_ball_presentation_is_mutually_exclusive() -> None:

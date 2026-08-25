@@ -1,4 +1,3 @@
-import time
 import pyray as rl
 from cereal import car
 from openpilot.common.filter_simple import FirstOrderFilter
@@ -15,6 +14,7 @@ from openpilot.selfdrive.ui.bp.lib.dm_icon_style import DMIconStyle
 from openpilot.selfdrive.ui.bp.mici.onroad.complication import MiciComplication
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import ConfidenceBallMiciBP
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
+from openpilot.selfdrive.ui.bp.lib.tesla_status import tesla_mads_active
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 # BluePilot: swipe-down shortcut to lateral debug screen
 from openpilot.selfdrive.ui.bp.mici.onroad.lateral_debug_mici import LateralDebugMici
@@ -133,7 +133,6 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
   def _render(self, _):
     """Override render to place confidence ball on left, offset driver state, and conditionally hide border."""
     bp_ui_log.tick()  # refresh BPUIDebugLog enabled state (mirrors TICI; MICI had no tick, so the toggle was inert)
-    start_draw = time.monotonic()
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
 
@@ -244,6 +243,11 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       self._content_rect.y,
       SIDE_PANEL_WIDTH,
       self._content_rect.height,
+    )
+    self._confidence_ball.set_tesla_status(
+      self._tesla_style_enabled,
+      tesla_mads_active(ui_state.sm),
+      ui_state.tesla_dark_fraction,
     )
     self._confidence_ball.render(ball_rect)
 

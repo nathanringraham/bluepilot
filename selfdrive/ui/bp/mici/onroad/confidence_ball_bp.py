@@ -1,8 +1,24 @@
 import pyray as rl
 from openpilot.selfdrive.ui.mici.onroad.confidence_ball import ConfidenceBall
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction
+from openpilot.selfdrive.ui.bp.lib.tesla_status import draw_tesla_status_lamp, tesla_mads_lamp_colors
 # BluePilot: GPU circle shader moved to BP module after upstream removal
 from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
+from openpilot.system.ui.lib.application import FontWeight, gui_app
+from openpilot.system.ui.lib.multilang import tr
+from openpilot.system.ui.lib.text_measure import measure_text_cached
+
+
+MICI_TESLA_STATUS_LABEL_SIZE = 18
+MICI_TESLA_STATUS_LAMP_RADIUS = 15
+MICI_TESLA_STATUS_LAMP_BEZEL = 3
+
+
+def mici_tesla_status_layout(rect: rl.Rectangle) -> tuple[float, float, float, float, float]:
+  """Return the shared centerline and compact C4 CONF/MADS row positions."""
+  center_x = rect.x + rect.width / 2
+  return center_x, rect.y + 31, rect.y + 75, rect.y + 112, rect.y + 156
 
 
 def confidence_ball_colors(confidence: float, status: UIStatus, demo: bool = False) -> tuple[rl.Color, rl.Color]:
@@ -119,6 +135,45 @@ class ConfidenceBallMiciBP(ConfidenceBallBP):
   BALL_WIDTH = 60
   def __init__(self, demo: bool = False):
     ConfidenceBallBP.__init__(self, demo=demo, radius=24, width=self.BALL_WIDTH, align_right=False)
+    self._tesla_status_enabled = False
+    self._tesla_mads_active = False
+    self._tesla_dark_fraction = 0.0
+    self._tesla_status_font = gui_app.font(FontWeight.SEMI_BOLD)
+
+  def set_tesla_status(self, enabled: bool, mads_active: bool = False, dark_fraction: float = 0.0) -> None:
+    self._tesla_status_enabled = enabled
+    self._tesla_mads_active = mads_active
+    self._tesla_dark_fraction = dark_fraction
+
+  def _draw_centered_label(self, text: str, center_x: float, y: float, color: rl.Color) -> None:
+    text_width = measure_text_cached(self._tesla_status_font, text, MICI_TESLA_STATUS_LABEL_SIZE).x
+    pos = rl.Vector2(center_x - text_width / 2, y)
+    rl.draw_text_ex(
+      self._tesla_status_font, text, rl.Vector2(pos.x + 1, pos.y + 1),
+      MICI_TESLA_STATUS_LABEL_SIZE, 0, rl.Color(0, 0, 0, 105),
+    )
+    rl.draw_text_ex(self._tesla_status_font, text, pos, MICI_TESLA_STATUS_LABEL_SIZE, 0, color)
+
+  def _render(self, rect: rl.Rectangle) -> None:
+    if not self._tesla_status_enabled:
+      super()._render(rect)
+      return
+
+    center_x, conf_label_y, conf_lamp_y, mads_label_y, mads_lamp_y = mici_tesla_status_layout(self.rect)
+    label_color = palette_for_dark_fraction(self._tesla_dark_fraction).max_inactive
+    self._draw_centered_label(tr("CONF."), center_x, conf_label_y, label_color)
+    conf_top, conf_bottom = self.current_colors()
+    draw_tesla_status_lamp(
+      center_x, conf_lamp_y, MICI_TESLA_STATUS_LAMP_RADIUS,
+      MICI_TESLA_STATUS_LAMP_BEZEL, conf_top, conf_bottom,
+    )
+
+    self._draw_centered_label(tr("MADS"), center_x, mads_label_y, label_color)
+    mads_top, mads_bottom = tesla_mads_lamp_colors(self._tesla_mads_active)
+    draw_tesla_status_lamp(
+      center_x, mads_lamp_y, MICI_TESLA_STATUS_LAMP_RADIUS,
+      MICI_TESLA_STATUS_LAMP_BEZEL, mads_top, mads_bottom,
+    )
 
 TICI_CONFIDENCE_BALL_R = 50
 TICI_CONFIDENCE_BALL_MARGIN = 5

@@ -10,6 +10,10 @@ from openpilot.selfdrive.ui.bp.onroad.exp_button_bp import ExpButtonBP
 from openpilot.selfdrive.ui.bp.lib import theme_pack
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import longitudinal_control_active
 from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction
+from openpilot.selfdrive.ui.bp.lib.tesla_status import (
+  draw_tesla_status_lamp,
+  tesla_mads_lamp_colors,
+)
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -40,13 +44,6 @@ TESLA_LEAD_FULL_RED_DELTA_MPS = 15.0 / 2.2369362920544
 def tesla_column_text_x(column_center_x: float, text_width: float) -> float:
   """Return a left edge that keeps every Tesla HUD row on one centerline."""
   return column_center_x - text_width / 2
-
-
-def tesla_mads_active(sm) -> bool:
-  """Return the published MADS engagement state, false when unavailable."""
-  if not (sm.alive.get("selfdriveStateSP", False) and sm.valid.get("selfdriveStateSP", False)):
-    return False
-  return bool(sm["selfdriveStateSP"].mads.enabled)
 
 
 def tesla_lead_speed_state(sm) -> tuple[float, float] | None:
@@ -249,19 +246,9 @@ class HudRendererBP(HudRendererSP):
         draw_column_text(text, text_y, text_size, color)
 
     def draw_status_lamp(center_y: float, top: rl.Color, bottom: rl.Color) -> None:
-      # Tesla-style recessed bezel and glass highlight shared by both indicators.
-      draw_shader_circle_gradient(
-        column_center_x, center_y, TESLA_STATUS_LAMP_RADIUS + TESLA_STATUS_LAMP_BEZEL,
-        rl.Color(78, 84, 89, 255), rl.Color(18, 21, 23, 255),
-      )
-      draw_shader_circle_gradient(
-        column_center_x, center_y, TESLA_STATUS_LAMP_RADIUS, top, bottom,
-      )
-      rl.draw_circle(
-        int(column_center_x - TESLA_STATUS_LAMP_RADIUS * 0.3),
-        int(center_y - TESLA_STATUS_LAMP_RADIUS * 0.3),
-        max(3, round(TESLA_STATUS_LAMP_RADIUS * 0.16)),
-        rl.Color(255, 255, 255, 120),
+      draw_tesla_status_lamp(
+        column_center_x, center_y, TESLA_STATUS_LAMP_RADIUS,
+        TESLA_STATUS_LAMP_BEZEL, top, bottom,
       )
 
     if self._tesla_confidence_enabled:
@@ -271,8 +258,7 @@ class HudRendererBP(HudRendererSP):
 
       draw_column_text(tr("MADS"), y + 430, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
       lamp_y = y + 505
-      lamp_top = rl.Color(91, 235, 139, 255) if self._tesla_mads_active else rl.Color(255, 106, 88, 255)
-      lamp_bottom = rl.Color(18, 158, 77, 255) if self._tesla_mads_active else rl.Color(190, 35, 39, 255)
+      lamp_top, lamp_bottom = tesla_mads_lamp_colors(self._tesla_mads_active)
       draw_status_lamp(lamp_y, lamp_top, lamp_bottom)
 
   def _render(self, rect: rl.Rectangle) -> None:
