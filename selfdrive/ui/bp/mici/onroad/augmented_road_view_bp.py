@@ -197,12 +197,6 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
 
     if self._tesla_style_enabled:
       self._tesla_style_renderer.render_traffic(self._content_rect, self._model_renderer)
-
-    # BluePilot: Side-window view intentionally covers model path/lane geometry,
-    # while compact HUD controls, warnings, alerts, and the side panel stay above.
-    if not self._tesla_style_enabled:
-      self._render_cropped_dcam()
-
     # BluePilot: Rad Racer sprites (ego + leads) over the road; no gauge cluster on MICI,
     # so the ego car anchors to the bottom edge of the content rect instead.
     if _rad_racer:

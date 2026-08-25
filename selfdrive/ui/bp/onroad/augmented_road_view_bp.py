@@ -187,12 +187,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
 
     if self._tesla_style_enabled:
       self._tesla_style_renderer.render_traffic(self._content_rect, self.model_renderer)
-
-    # BluePilot: Side-window view intentionally covers model path/lane geometry,
-    # while the HUD, warnings, controls, alerts, and border remain above it.
-    if not self._tesla_style_enabled:
-      self._render_cropped_dcam(self._content_rect)
-
     # SP fade overlay
     self.update_fade_out_bottom_overlay(self._content_rect)
 
@@ -294,12 +288,11 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # Sky, stars, skyline, roadside signs (behind the road)
     self._rad_racer_theme.render_background(content_rect, self.model_renderer)
 
+    # Integrated camera quadrant stays behind Rad Racer road/model geometry.
+    self._render_cropped_dcam(content_rect)
+
     # Green game road (ModelRendererBP handles the 8-bit styling internally)
     self.model_renderer.render(content_rect)
-
-    # BluePilot: Keep the dcam above the game road/model but below warnings,
-    # cluster controls, driver monitoring, alerts, and the outer border.
-    self._render_cropped_dcam(content_rect)
 
     # Blindspot red edges stay on — safety overlay
     self._draw_blindspot_screen_edges(content_rect, self.BLIND_SPOT_WIDTH)

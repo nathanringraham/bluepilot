@@ -1,8 +1,6 @@
 from types import SimpleNamespace
 
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
-  POST_TRIGGER_HOLD_SECONDS,
-  PostTriggerHold,
   Region,
   active_dcam_sides,
   adaptive_window_center_y,
@@ -14,26 +12,6 @@ from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   wedge_insets,
   wedge_local_insets,
 )
-
-
-def test_post_trigger_hold_delays_fade_for_one_second() -> None:
-  hold = PostTriggerHold()
-
-  assert hold.update(True, 10.0)
-  assert hold.update(False, 10.1)
-  assert hold.update(False, 10.1 + POST_TRIGGER_HOLD_SECONDS - 0.001)
-  assert not hold.update(False, 10.1 + POST_TRIGGER_HOLD_SECONDS)
-
-
-def test_post_trigger_hold_restarts_after_reactivation() -> None:
-  hold = PostTriggerHold()
-
-  assert hold.update(True, 20.0)
-  assert hold.update(False, 20.1)
-  assert hold.update(True, 20.8)
-  assert hold.update(False, 21.0)
-  assert hold.update(False, 21.9)
-  assert not hold.update(False, 22.0)
 
 
 def test_active_dcam_sides_are_independent() -> None:
