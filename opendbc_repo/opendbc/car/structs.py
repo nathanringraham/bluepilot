@@ -199,7 +199,6 @@ class ControllerStateBP:
   bmsEightBitRacerTheme: bool = False
   bmsRainbowLaneLines: bool = False
   bmsShowBlindspotOverlay: bool = True
-  bmsDcamBlindspotLaneChange: bool = False
   bmsTeslaStyleMode: bool = False
   bmsShowBrakeStatus: bool = False
   bmsShowConfidenceBall: bool = True

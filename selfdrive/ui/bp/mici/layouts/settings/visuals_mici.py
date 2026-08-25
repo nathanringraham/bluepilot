@@ -52,7 +52,6 @@ class VisualsLayoutMici(NavScroller):
     self.hide_camera_view = BigParamControlBP("Minimal Driving View", "BPHideCameraView")
     self.rainbow_lane_lines = BigParamControlBP("Rainbow Lane Lines", "BPRainbowLines")
     self.show_blindspot_ui = BigParamControlBP("Show Blindspot Overlay", "ShowBlindspotOverlay")
-    self.cropped_dcam = BigParamControlBP("DCam Blindspot/Lane Change", "BPCroppedDcam")
     self.show_brake_status = BigParamControlBP("Show Brake Status", "ShowBrakeStatus")
     self.animate_steering_wheel = BigParamControlBP("Animate Steering Wheel", "BPAnimateSteeringWheel")
     ensure_steering_wheel_icon_style_initialized(Params(), SteeringWheelIconStyle.COMMA_4)
@@ -78,7 +77,6 @@ class VisualsLayoutMici(NavScroller):
       self.hide_camera_view,
       self.rainbow_lane_lines,
       self.show_blindspot_ui,
-      self.cropped_dcam,
       self.show_brake_status,
       self.animate_steering_wheel,
       self.wheel_icon_style,
@@ -95,7 +93,6 @@ class VisualsLayoutMici(NavScroller):
       ("BPThemeAutoSeasonal", self.theme_auto_seasonal),
       ("BPRainbowLines", self.rainbow_lane_lines),
       ("ShowBlindspotOverlay", self.show_blindspot_ui),
-      ("BPCroppedDcam", self.cropped_dcam),
       ("ShowBrakeStatus", self.show_brake_status),
       ("BPAnimateSteeringWheel", self.animate_steering_wheel),
       ("FordPrefHybridPowerFlow", self.show_hybrid_power_flow),

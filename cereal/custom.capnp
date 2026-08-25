@@ -553,10 +553,10 @@ struct ControllerStateBP @0xcd96dafb67a082d0 {
   # Only published by Ford BP, so other cars show nothing.
   activeLateralMode @54 :LateralMode;
 
-  # BluePilot: append-only menu fields (kept here so existing ordinals never move).
-  bmsDcamBlindspotLaneChange @55 :Bool;  # BPCroppedDcam
+  # BluePilot: append-only menu fields. Ordinal 55 was used by an unpublished
+  # experiment and remains reserved so Tesla telemetry keeps its wire ordinal.
+  reservedVisualMenuField55 @55 :Void;
   bmsTeslaStyleMode @56 :Bool;  # BPThemePack selected Tesla Light/Dark (ordinal/name retained for API compatibility)
-
   enum LateralMode {
     openpilot @0;  # BP lateral bypassed (disable_BP_lat_UI)
     curvature @1;
