@@ -16,14 +16,11 @@ from openpilot.selfdrive.ui.onroad.cameraview import (
 )
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
   DEFAULT_WINDOW_CENTER_Y,
-  DcamTrigger,
   Region,
   Side,
   ease_visibility_alpha,
-  low_light_enhancement,
   panel_region,
   source_crop,
-  trigger_badge_region,
 )
 from openpilot.system.hardware import TICI
 from openpilot.system.ui.lib.application import gui_app
@@ -31,44 +28,30 @@ from openpilot.system.ui.lib.application import gui_app
 
 FADE_IN_RC = 0.12
 FADE_OUT_RC = 0.22
-LOW_LIGHT_RC = 0.80
 VISIBLE_ALPHA_THRESHOLD = 0.01
-FORD_BLUE = (0, 52, 120)
-FORD_ACCENT_BLUE = (0, 174, 239)
-TRIGGER_TEXTURE_SIZE = 64
 
 
-def _with_crop_effects(fragment_shader: str) -> str:
-  """Add BP-only opacity and adaptive shadow lift to a native camera shader."""
+def _with_crop_alpha(fragment_shader: str) -> str:
+  """Add a BP-only opacity uniform without changing either native camera shader."""
   output_declaration = "out vec4 fragColor;"
   assert output_declaration in fragment_shader
   shader = fragment_shader.replace(
     output_declaration,
-    f"{output_declaration}\nuniform float cropAlpha;\nuniform float cropLowLight;",
+    f"{output_declaration}\nuniform float cropAlpha;",
     1,
   )
   body, trailing = shader.rsplit("}", 1)
-  effects = """
-      float cropLuma = dot(fragColor.rgb, vec3(0.299, 0.587, 0.114));
-      float cropShadow = cropLowLight * (1.0 - smoothstep(0.08, 0.55, cropLuma));
-      vec3 cropLifted = pow(max(fragColor.rgb, vec3(0.0)), vec3(0.72)) + vec3(0.018);
-      vec3 cropColor = mix(fragColor.rgb, cropLifted, 0.72 * cropShadow);
-      float cropEnhancedLuma = dot(cropColor, vec3(0.299, 0.587, 0.114));
-      cropColor = mix(vec3(cropEnhancedLuma), cropColor, 1.0 + 0.06 * cropLowLight);
-      fragColor = vec4(clamp(cropColor, 0.0, 1.0), fragColor.a * cropAlpha);
-  """
-  return f"{body}{effects}}}{trailing}"
+  return f"{body}  fragColor.a *= cropAlpha;\n}}{trailing}"
 
 
 def panel_rect(content_rect: rl.Rectangle, side: Side, left_inset: float = 0.0,
-               right_inset: float = 0.0, left_scc_stack: bool = False) -> rl.Rectangle:
+               right_inset: float = 0.0) -> rl.Rectangle:
   """Place a crop at the edge while reserving the center for model overlays."""
   region = panel_region(
     Region(content_rect.x, content_rect.y, content_rect.width, content_rect.height),
     side,
     left_inset,
     right_inset,
-    left_scc_stack,
   )
   return rl.Rectangle(region.x, region.y, region.width, region.height)
 
@@ -86,22 +69,6 @@ class _CroppedDcamMixin:
       "left": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
       "right": FirstOrderFilter(0.0, FADE_IN_RC, 1.0 / gui_app.target_fps),
     }
-    self._low_light_filter = FirstOrderFilter(0.0, LOW_LIGHT_RC, 1.0 / gui_app.target_fps)
-    self._side_trigger: dict[Side, DcamTrigger | None] = {"left": None, "right": None}
-    self._trigger_textures = {
-      ("left", "blind_spot"): gui_app.texture(
-        "icons_mici/onroad/blind_spot_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE,
-      ),
-      ("right", "blind_spot"): gui_app.texture(
-        "icons_mici/onroad/blind_spot_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE, flip_x=True,
-      ),
-      ("left", "turn_signal"): gui_app.texture(
-        "icons_mici/onroad/turn_signal_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE,
-      ),
-      ("right", "turn_signal"): gui_app.texture(
-        "icons_mici/onroad/turn_signal_left.png", TRIGGER_TEXTURE_SIZE, TRIGGER_TEXTURE_SIZE, flip_x=True,
-      ),
-    }
 
     # The native shaders output opaque camera pixels. Replace only this child
     # view's shader with an alpha-aware equivalent so the road view underneath
@@ -115,8 +82,6 @@ class _CroppedDcamMixin:
       self._enhance_driver_loc = rl.get_shader_location(self.shader, "enhance_driver")
     self._crop_alpha_loc = rl.get_shader_location(self.shader, "cropAlpha")
     self._crop_alpha_value = rl.ffi.new("float[1]", [0.0])
-    self._crop_low_light_loc = rl.get_shader_location(self.shader, "cropLowLight")
-    self._crop_low_light_value = rl.ffi.new("float[1]", [0.0])
 
   def is_visible(self) -> bool:
     return any(alpha_filter.x > VISIBLE_ALPHA_THRESHOLD for alpha_filter in self._side_alpha.values())
@@ -142,10 +107,7 @@ class _CroppedDcamMixin:
   def render_crops(self, content_rect: rl.Rectangle, left_active: bool, right_active: bool,
                    calibration_rpy: tuple[float, float, float], window_center_y: float,
                    focal_length: float, left_inset: float = 0.0,
-                   right_inset: float = 0.0, light_sensor: float = -1.0,
-                   left_scc_stack: bool = False,
-                   left_trigger: DcamTrigger | None = None,
-                   right_trigger: DcamTrigger | None = None) -> None:
+                   right_inset: float = 0.0) -> None:
     # Do not advance the transition before the first usable frame; otherwise a
     # newly connected stream could pop in after the fade has already completed.
     if not self.update_frame() or self.frame is None:
@@ -155,42 +117,28 @@ class _CroppedDcamMixin:
       "left": self._update_side_alpha("left", left_active),
       "right": self._update_side_alpha("right", right_active),
     }
-    current_triggers = {"left": left_trigger, "right": right_trigger}
-    for side in ("left", "right"):
-      if current_triggers[side] is not None:
-        self._side_trigger[side] = current_triggers[side]
-      elif side_alpha[side] <= VISIBLE_ALPHA_THRESHOLD:
-        self._side_trigger[side] = None
     if max(side_alpha.values()) <= VISIBLE_ALPHA_THRESHOLD:
       return
 
     # Smooth driver-model landmark changes so a marginal face detection cannot
     # make the safety view jump between frames.
     self._window_center_y = 0.95 * self._window_center_y + 0.05 * window_center_y
-    low_light = self._low_light_filter.update(low_light_enhancement(light_sensor))
     for side in ("left", "right"):
       alpha = side_alpha[side]
       if alpha <= VISIBLE_ALPHA_THRESHOLD:
         continue
-      destination = panel_rect(content_rect, side, left_inset, right_inset, left_scc_stack)
+      destination = panel_rect(content_rect, side, left_inset, right_inset)
       crop = source_crop(self.frame.width, self.frame.height, destination.width, destination.height, side,
                          calibration_rpy, self._window_center_y, focal_length)
-      self._draw_crop(content_rect, destination, crop, alpha, low_light, side, self._side_trigger[side])
+      self._draw_crop(content_rect, destination, crop, alpha)
 
   def _draw_crop(self, content_rect: rl.Rectangle, destination: rl.Rectangle,
-                 crop: Region, alpha: float, low_light: float, side: Side,
-                 trigger: DcamTrigger | None) -> None:
-    border = min(6.0, max(2.0, destination.height * 0.025))
-    shadow = border + max(2.0, border * 0.65)
-    rl.draw_rectangle_rounded(
-      rl.Rectangle(destination.x - shadow, destination.y - shadow,
-                   destination.width + 2 * shadow, destination.height + 2 * shadow),
-      0.10, 8, rl.Color(0, 0, 0, int(175 * alpha)),
-    )
+                 crop: Region, alpha: float) -> None:
+    border = 4.0
     rl.draw_rectangle_rounded(
       rl.Rectangle(destination.x - border, destination.y - border,
                    destination.width + 2 * border, destination.height + 2 * border),
-      0.10, 8, rl.Color(*FORD_BLUE, int(245 * alpha)),
+      0.10, 8, rl.Color(0, 0, 0, int(195 * alpha)),
     )
     rl.begin_scissor_mode(int(destination.x), int(destination.y),
                           int(destination.width), int(destination.height))
@@ -198,17 +146,10 @@ class _CroppedDcamMixin:
     # stock full-screen driver-camera behavior.
     source = rl.Rectangle(crop.x, crop.y, -crop.width, crop.height)
     self._crop_alpha_value[0] = alpha
-    self._crop_low_light_value[0] = low_light
     rl.set_shader_value(
       self.shader,
       self._crop_alpha_loc,
       self._crop_alpha_value,
-      rl.ShaderUniformDataType.SHADER_UNIFORM_FLOAT,
-    )
-    rl.set_shader_value(
-      self.shader,
-      self._crop_low_light_loc,
-      self._crop_low_light_value,
       rl.ShaderUniformDataType.SHADER_UNIFORM_FLOAT,
     )
     if TICI:
@@ -219,41 +160,14 @@ class _CroppedDcamMixin:
     # Restore the parent's scissor rectangle for all subsequent UI renderers.
     rl.begin_scissor_mode(int(content_rect.x), int(content_rect.y),
                           int(content_rect.width), int(content_rect.height))
-    rl.draw_rectangle_rounded_lines_ex(
-      destination, 0.10, 8, max(1.0, border * 0.40), rl.Color(*FORD_ACCENT_BLUE, int(230 * alpha)),
-    )
-    if trigger is not None:
-      self._draw_trigger_badge(destination, side, trigger, alpha)
-
-  def _draw_trigger_badge(self, destination: rl.Rectangle, side: Side,
-                          trigger: DcamTrigger, alpha: float) -> None:
-    badge = trigger_badge_region(Region(destination.x, destination.y, destination.width, destination.height))
-    rl.draw_circle_v(
-      rl.Vector2(badge.x + badge.width / 2, badge.y + badge.height / 2),
-      badge.width / 2,
-      rl.Color(5, 17, 31, int(220 * alpha)),
-    )
-    rl.draw_circle_lines_v(
-      rl.Vector2(badge.x + badge.width / 2, badge.y + badge.height / 2),
-      badge.width / 2,
-      rl.Color(*FORD_ACCENT_BLUE, int(245 * alpha)),
-    )
-
-    texture = self._trigger_textures[(side, trigger)]
-    icon_size = badge.width * 0.70
-    scale = icon_size / max(texture.width, texture.height)
-    pos = rl.Vector2(
-      badge.x + (badge.width - texture.width * scale) / 2,
-      badge.y + (badge.height - texture.height * scale) / 2,
-    )
-    rl.draw_texture_ex(texture, pos, 0.0, scale, rl.Color(255, 255, 255, int(255 * alpha)))
+    rl.draw_rectangle_rounded_lines_ex(destination, 0.10, 8, 2.0, rl.Color(255, 255, 255, int(135 * alpha)))
 
 
 class CroppedDcamViewBP(_CroppedDcamMixin, TiciCameraView):
   CROP_VERTEX_SHADER = TICI_VERTEX_SHADER
-  CROP_FRAGMENT_SHADER = _with_crop_effects(TICI_FRAME_FRAGMENT_SHADER)
+  CROP_FRAGMENT_SHADER = _with_crop_alpha(TICI_FRAME_FRAGMENT_SHADER)
 
 
 class MiciCroppedDcamViewBP(_CroppedDcamMixin, MiciCameraView):
   CROP_VERTEX_SHADER = MICI_VERTEX_SHADER
-  CROP_FRAGMENT_SHADER = _with_crop_effects(MICI_FRAME_FRAGMENT_SHADER)
+  CROP_FRAGMENT_SHADER = _with_crop_alpha(MICI_FRAME_FRAGMENT_SHADER)
