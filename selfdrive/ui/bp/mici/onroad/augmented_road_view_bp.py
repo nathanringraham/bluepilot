@@ -10,7 +10,8 @@ from openpilot.selfdrive.ui.bp.mici.onroad.cameraview_bp import MiciCameraViewBP
 from openpilot.selfdrive.ui.bp.mici.onroad.model_renderer_bp import ModelRendererBP
 from openpilot.selfdrive.ui.bp.onroad.blindspot_renderer import BlindspotRendererMixin
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_geometry import (
-  active_dcam_sides,
+  DEFAULT_WINDOW_CENTER_Y,
+  active_dcam_triggers,
   adaptive_window_center_y,
 )
 from openpilot.selfdrive.ui.bp.onroad.cropped_dcam_view import MiciCroppedDcamViewBP
@@ -33,6 +34,9 @@ from openpilot.selfdrive.ui.bp.lib import theme_pack, theme_scene
 MICI_BALL_BORDER_MARGIN = 25  # half of 50px MICI border thickness
 
 _SWIPE_DOWN_THRESHOLD = 80  # minimum downward travel (px) to trigger lateral debug
+MICI_DCAM_WARNING_INSET = 140.0
+
+
 class _VerticalSwipeDetector(Widget):
   """Transparent overlay that detects swipe-down gestures.
 
@@ -204,6 +208,10 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
         self._content_rect, self._model_renderer,
         self._content_rect.y + self._content_rect.height - 4)
 
+    # BluePilot: Keep the central model/lane corridor clear. MICI's stock BSM
+    # arrows render later and get their own reserved edge inset below.
+    self._render_cropped_dcam()
+
     # Fade out bottom overlay (only when engaged)
     fade_alpha = self._fade_alpha_filter.update(ui_state.status != UIStatus.DISENGAGED)
     if fade_alpha > 1e-2:
@@ -269,15 +277,17 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       return
 
     sm = ui_state.sm
-    left_active = right_active = False
+    left_trigger = right_trigger = None
     if self._cropped_dcam_enabled and sm.valid['carState']:
-      left_active, right_active = active_dcam_sides(sm['carState'])
+      left_trigger, right_trigger = active_dcam_triggers(sm['carState'])
+    left_active = left_trigger is not None
+    right_active = right_trigger is not None
 
     calibration_rpy = (0.0, 0.0, 0.0)
     if sm.valid['liveCalibration'] and len(sm['liveCalibration'].rpyCalib) == 3:
       calibration_rpy = tuple(sm['liveCalibration'].rpyCalib)
 
-    window_center_y = None
+    window_center_y = DEFAULT_WINDOW_CENTER_Y
     if sm.valid['driverStateV2']:
       driver_state = sm['driverStateV2']
       is_rhd = driver_state.wheelOnRightProb > 0.5
@@ -285,6 +295,7 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       window_center_y = adaptive_window_center_y(driver_data.facePosition, driver_data.faceProb)
 
     focal_length = self.device_camera.dcam.focal_length if self.device_camera is not None else 567.0
+    warning_inset = MICI_DCAM_WARNING_INSET if ui_state.blindspot else 0.0
     self._cropped_dcam.render_crops(
       self._content_rect,
       left_active,
@@ -292,5 +303,9 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       calibration_rpy,
       window_center_y,
       focal_length,
+      left_inset=warning_inset,
+      right_inset=warning_inset,
       light_sensor=ui_state.light_sensor,
+      left_trigger=left_trigger,
+      right_trigger=right_trigger,
     )

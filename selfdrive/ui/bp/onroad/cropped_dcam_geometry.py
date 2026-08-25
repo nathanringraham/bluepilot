@@ -6,34 +6,39 @@ from typing import Literal
 
 
 Side = Literal["left", "right"]
+DcamTrigger = Literal["blind_spot", "turn_signal"]
 
-# A single active camera follows the broad side-window silhouette from the
-# original feature reference. When both sides are visible, the companion alpha
-# smoothly narrows both wedges into non-overlapping bookends. The tighter MICI
-# profile preserves a generous center corridor on comma 4's compact display.
-SINGLE_WEDGE_TOP_INSET = 0.31
-SINGLE_WEDGE_TOP_INSET_COMPACT = 0.40
-SINGLE_WEDGE_BOTTOM_INSET = 0.80
-DUAL_WEDGE_TOP_INSET = 0.52
-DUAL_WEDGE_TOP_INSET_COMPACT = 0.58
-DUAL_WEDGE_BOTTOM_INSET = 0.82
-DUAL_WEDGE_BOTTOM_INSET_COMPACT = 0.86
-COMPACT_CONTENT_HEIGHT = 300.0
+PANEL_WIDTH_RATIO = 0.23
+PANEL_ASPECT_RATIO = 1.5
+PANEL_MIN_WIDTH = 110.0
+PANEL_MAX_WIDTH = 420.0
+PANEL_MIN_HEIGHT = 74.0
+PANEL_MAX_HEIGHT = 280.0
+COMPACT_CONTENT_MAX_WIDTH = 1000.0
+COMPACT_PANEL_TOP_RATIO = 0.27
+PANEL_TOP_RATIO = 0.27
+LEFT_PANEL_SCC_TOP_RATIO = 0.43
 
-# Zoom into the outer third of the mirrored dcam image. Keeping this narrow
-# source region in the larger integrated view prioritizes the side window over
-# the occupants and seats on the supported fisheye cameras.
+# Zoom into the outer third of the mirrored dcam image. Keeping the destination
+# card unchanged while narrowing this source region prioritizes the side window
+# over the occupants and seats on the supported fisheye cameras.
 CROP_WIDTH_RATIO = 0.34
 LEFT_RAW_CENTER_X = 0.83
 RIGHT_RAW_CENTER_X = 0.17
-DEFAULT_WINDOW_CENTER_Y = 0.51
-WINDOW_CENTER_FACE_OFFSET_Y = 0.13
-WINDOW_CENTER_MIN_Y = 0.45
-WINDOW_CENTER_MAX_Y = 0.63
+DEFAULT_WINDOW_CENTER_Y = 0.46
+WINDOW_CENTER_FACE_OFFSET_Y = 0.08
+WINDOW_CENTER_MIN_Y = 0.40
+WINDOW_CENTER_MAX_Y = 0.56
 
 # ui_state.light_sensor is 100 in bright light and approaches zero in darkness.
 LOW_LIGHT_ENHANCEMENT_START = 70.0
 LOW_LIGHT_ENHANCEMENT_FULL = 20.0
+
+TRIGGER_BADGE_DIAMETER_RATIO = 0.25
+TRIGGER_BADGE_MIN_DIAMETER = 24.0
+TRIGGER_BADGE_MAX_DIAMETER = 68.0
+TRIGGER_BADGE_MARGIN_RATIO = 0.035
+
 
 @dataclass(frozen=True)
 class Region:
@@ -45,10 +50,19 @@ class Region:
 
 def active_dcam_sides(car_state) -> tuple[bool, bool]:
   """Return left/right activation without coupling to either warning toggle."""
-  return (
-    car_state.leftBlinker or car_state.leftBlindspot,
-    car_state.rightBlinker or car_state.rightBlindspot,
+  left_trigger, right_trigger = active_dcam_triggers(car_state)
+  return left_trigger is not None, right_trigger is not None
+
+
+def active_dcam_triggers(car_state) -> tuple[DcamTrigger | None, DcamTrigger | None]:
+  """Resolve the reason for each crop, prioritizing the safety-critical BLIS alert."""
+  left_trigger: DcamTrigger | None = (
+    "blind_spot" if car_state.leftBlindspot else "turn_signal" if car_state.leftBlinker else None
   )
+  right_trigger: DcamTrigger | None = (
+    "blind_spot" if car_state.rightBlindspot else "turn_signal" if car_state.rightBlinker else None
+  )
+  return left_trigger, right_trigger
 
 
 def ease_visibility_alpha(alpha: float) -> float:
@@ -57,48 +71,45 @@ def ease_visibility_alpha(alpha: float) -> float:
   return alpha * alpha * (3.0 - 2.0 * alpha)
 
 
-def wedge_insets(content: Region, companion_alpha: float) -> tuple[float, float]:
-  """Return top/bottom outer-edge insets for a side camera wedge.
+def panel_region(content: Region, side: Side, left_inset: float = 0.0,
+                 right_inset: float = 0.0, left_scc_stack: bool = False) -> Region:
+  """Place a crop at the edge while reserving the center for model overlays."""
+  width = min(PANEL_MAX_WIDTH, max(PANEL_MIN_WIDTH, content.width * PANEL_WIDTH_RATIO))
+  height = min(PANEL_MAX_HEIGHT, max(PANEL_MIN_HEIGHT, width / PANEL_ASPECT_RATIO))
+  if content.width <= COMPACT_CONTENT_MAX_WIDTH:
+    top_ratio = COMPACT_PANEL_TOP_RATIO
+  else:
+    top_ratio = LEFT_PANEL_SCC_TOP_RATIO if side == "left" and left_scc_stack else PANEL_TOP_RATIO
+  top = content.y + content.height * top_ratio
+  margin = max(18.0, content.width * 0.012)
 
-  ``companion_alpha`` makes the active side contract continuously while the
-  other camera fades in, rather than jumping between single and dual layouts.
-  """
-  compact = content.height <= COMPACT_CONTENT_HEIGHT
-  single_top = SINGLE_WEDGE_TOP_INSET_COMPACT if compact else SINGLE_WEDGE_TOP_INSET
-  dual_top = DUAL_WEDGE_TOP_INSET_COMPACT if compact else DUAL_WEDGE_TOP_INSET
-  dual_bottom = DUAL_WEDGE_BOTTOM_INSET_COMPACT if compact else DUAL_WEDGE_BOTTOM_INSET
-  mix = ease_visibility_alpha(companion_alpha)
-  return (
-    single_top + (dual_top - single_top) * mix,
-    SINGLE_WEDGE_BOTTOM_INSET + (dual_bottom - SINGLE_WEDGE_BOTTOM_INSET) * mix,
+  if side == "left":
+    x = content.x + margin + left_inset
+  else:
+    x = content.x + content.width - margin - right_inset - width
+
+  return Region(x, top, width, height)
+
+
+def trigger_badge_region(panel: Region) -> Region:
+  """Scale and place a compact trigger badge inside a popup's lower-right corner."""
+  diameter = min(
+    TRIGGER_BADGE_MAX_DIAMETER,
+    max(TRIGGER_BADGE_MIN_DIAMETER, panel.height * TRIGGER_BADGE_DIAMETER_RATIO),
   )
-
-
-def wedge_edge_x(content: Region, y_normalized: float, companion_alpha: float) -> float:
-  """Return the normalized inner edge of a right-side wedge at ``y``."""
-  top, bottom = wedge_insets(content, companion_alpha)
-  y = min(1.0, max(0.0, y_normalized))
-  return top + (bottom - top) * y
-
-
-def wedge_canvas_region(content: Region, side: Side, companion_alpha: float) -> Region:
-  """Bound a wedge so its broad top edge receives the complete source crop."""
-  top, _ = wedge_insets(content, companion_alpha)
-  width = content.width * (1.0 - top)
-  x = content.x if side == "left" else content.x + content.width - width
-  return Region(x, content.y, width, content.height)
-
-
-def wedge_local_insets(content: Region, companion_alpha: float) -> tuple[float, float]:
-  """Convert full-content wedge insets into the wedge canvas coordinate space."""
-  top, bottom = wedge_insets(content, companion_alpha)
-  return 0.0, (bottom - top) / (1.0 - top)
+  margin = max(5.0, panel.height * TRIGGER_BADGE_MARGIN_RATIO)
+  return Region(
+    panel.x + panel.width - margin - diameter,
+    panel.y + panel.height - margin - diameter,
+    diameter,
+    diameter,
+  )
 
 
 def source_crop(frame_width: float, frame_height: float, destination_width: float,
                 destination_height: float, side: Side,
                 calibration_rpy: tuple[float, float, float],
-                window_center_y: float | None = None,
+                window_center_y: float = DEFAULT_WINDOW_CENTER_Y,
                 focal_length: float = 567.0) -> Region:
   """Calculate a calibration-aware raw dcam crop.
 
@@ -122,14 +133,9 @@ def source_crop(frame_width: float, frame_height: float, destination_width: floa
   raw_center_x = LEFT_RAW_CENTER_X if side == "left" else RIGHT_RAW_CENTER_X
   raw_center_x += focal_length * tan(yaw) / frame_width
 
-  # A detected face is already expressed in raw dcam coordinates, so it
-  # inherently accounts for device pitch. Only project liveCalibration pitch
-  # when the landmark is unavailable; applying both shifted the crop into the
-  # headliner on pitched installations. Roll still moves the two sides in
-  # opposite vertical directions around the optical center.
-  center_y = window_center_y
-  if center_y is None:
-    center_y = DEFAULT_WINDOW_CENTER_Y - focal_length * tan(pitch) / frame_height
+  # Project mount pitch and roll into the raw dcam image. Roll moves the two
+  # sides in opposite vertical directions around the optical center.
+  center_y = window_center_y - focal_length * tan(pitch) / frame_height
   center_y += (raw_center_x - 0.5) * (frame_width / frame_height) * tan(roll)
 
   center_x_px = raw_center_x * frame_width
@@ -140,10 +146,10 @@ def source_crop(frame_width: float, frame_height: float, destination_width: floa
 
 
 def adaptive_window_center_y(face_position: tuple[float, float] | list[float] | None,
-                             face_prob: float) -> float | None:
+                             face_prob: float) -> float:
   """Use the driver's face as a stable per-installation vertical landmark."""
   if face_prob <= 0.5 or face_position is None or len(face_position) != 2:
-    return None
+    return DEFAULT_WINDOW_CENTER_Y
 
   face_x, face_y = face_position
   # Same inexpensive raw-dcam approximation used by DriverCameraDialog.
