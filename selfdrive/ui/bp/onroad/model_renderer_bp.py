@@ -20,6 +20,7 @@ from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
   tesla_path_mode,
 )
 from openpilot.selfdrive.ui.bp.lib.blindspot_visuals import tesla_blindspot_lane_active
+from openpilot.selfdrive.ui.bp.lib.lane_change_visuals import tesla_lane_change_lane_active
 from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction, tesla_path_gradient_colors
 # BluePilot: seasonal theme packs (colors.json overrides for road colors)
 from openpilot.selfdrive.ui.bp.lib import theme_pack
@@ -440,13 +441,23 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
     palette = palette_for_dark_fraction(self._tesla_dark_fraction)
     for i, lane_line in enumerate(self._lane_lines):
       blindspot_active = tesla_blindspot_lane_active(ui_state.sm, i)
-      if lane_line.projected_points.size == 0 or (not blindspot_active and self._lane_line_probs[i] < 0.25):
+      lane_change_active = tesla_lane_change_lane_active(ui_state.sm, i)
+      if (lane_line.projected_points.size == 0 or
+          (not blindspot_active and not lane_change_active and self._lane_line_probs[i] < 0.25)):
         continue
       if blindspot_active:
         glow = self._expand_polygon(lane_line.projected_points, 4.0)
         if glow.size:
           draw_polygon(self._rect, glow, rl.Color(palette.blindspot.r, palette.blindspot.g, palette.blindspot.b, 70))
         draw_polygon(self._rect, lane_line.projected_points, palette.blindspot)
+      elif lane_change_active:
+        glow = self._expand_polygon(lane_line.projected_points, 7.0)
+        if glow.size:
+          draw_polygon(
+            self._rect, glow,
+            rl.Color(palette.lane_change.r, palette.lane_change.g, palette.lane_change.b, 58),
+          )
+        draw_polygon(self._rect, lane_line.projected_points, palette.lane_change)
       else:
         is_current_lane = i in (1, 2)
         base = palette.lane_inner if is_current_lane else palette.lane_outer

@@ -21,6 +21,7 @@ from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
   tesla_path_mode,
 )
 from openpilot.selfdrive.ui.bp.lib.blindspot_visuals import tesla_blindspot_lane_active
+from openpilot.selfdrive.ui.bp.lib.lane_change_visuals import tesla_lane_change_lane_active
 from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction, tesla_path_gradient_colors
 
 class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
@@ -201,11 +202,15 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
     offset = np.array([self._rect.x, self._rect.y], dtype=np.float32)
     for i, lane_line in enumerate(self._lane_lines):
       blindspot_active = tesla_blindspot_lane_active(ui_state.sm, i)
-      if lane_line.projected_points.size == 0 or (not blindspot_active and self._lane_line_probs[i] < 0.25):
+      lane_change_active = tesla_lane_change_lane_active(ui_state.sm, i)
+      if (lane_line.projected_points.size == 0 or
+          (not blindspot_active and not lane_change_active and self._lane_line_probs[i] < 0.25)):
         continue
       points = lane_line.projected_points + offset
       if blindspot_active:
         draw_polygon(self._rect, points, palette.blindspot)
+      elif lane_change_active:
+        draw_polygon(self._rect, points, palette.lane_change)
       else:
         is_current_lane = i in (1, 2)
         base = palette.lane_inner if is_current_lane else palette.lane_outer

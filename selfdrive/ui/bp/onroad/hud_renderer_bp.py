@@ -14,6 +14,7 @@ from openpilot.selfdrive.ui.bp.lib.tesla_status import (
   draw_tesla_status_lamp,
   tesla_mads_lamp_colors,
 )
+from openpilot.selfdrive.ui.bp.onroad.tesla_turn_signal import TeslaTurnSignalRenderer
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -44,6 +45,14 @@ TESLA_LEAD_FULL_RED_DELTA_MPS = 15.0 / 2.2369362920544
 def tesla_column_text_x(column_center_x: float, text_width: float) -> float:
   """Return a left edge that keeps every Tesla HUD row on one centerline."""
   return column_center_x - text_width / 2
+
+
+def tesla_status_row_layout(y: float, confidence_enabled: bool
+                            ) -> tuple[tuple[float, float] | None, tuple[float, float]]:
+  """Place MADS in the first available Tesla status row when CONF is hidden."""
+  confidence_row = (y + 306, y + 390) if confidence_enabled else None
+  mads_row = (y + 430, y + 505) if confidence_enabled else (y + 306, y + 390)
+  return confidence_row, mads_row
 
 
 def tesla_lead_speed_state(sm) -> tuple[float, float] | None:
@@ -111,6 +120,8 @@ class HudRendererBP(HudRendererSP):
     self._tesla_confidence_enabled = False
     self._tesla_confidence_colors = (rl.Color(50, 50, 50, 255), rl.Color(13, 13, 13, 255))
     self._tesla_mads_active = False
+    self._tesla_turn_signals = TeslaTurnSignalRenderer()
+    self._tesla_turn_signals.set_enabled(self._tesla_style)
     # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
     self._lateral_mode = None
 
@@ -139,6 +150,7 @@ class HudRendererBP(HudRendererSP):
       self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
       self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
       self._tesla_style = theme_pack.tesla_active(self._bp_params)
+      self._tesla_turn_signals.set_enabled(self._tesla_style)
 
     if self._show_lateral_control:
       sm = ui_state.sm
@@ -251,15 +263,19 @@ class HudRendererBP(HudRendererSP):
         TESLA_STATUS_LAMP_BEZEL, top, bottom,
       )
 
-    if self._tesla_confidence_enabled:
-      draw_column_text(tr("CONF."), y + 306, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
+    confidence_row, mads_row = tesla_status_row_layout(y, self._tesla_confidence_enabled)
+    if confidence_row is not None:
+      conf_label_y, conf_lamp_y = confidence_row
+      draw_column_text(tr("CONF."), conf_label_y, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
       top, bottom = self._tesla_confidence_colors
-      draw_status_lamp(y + 390, top, bottom)
+      draw_status_lamp(conf_lamp_y, top, bottom)
 
-      draw_column_text(tr("MADS"), y + 430, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
-      lamp_y = y + 505
-      lamp_top, lamp_bottom = tesla_mads_lamp_colors(self._tesla_mads_active)
-      draw_status_lamp(lamp_y, lamp_top, lamp_bottom)
+    # MADS is independent from the optional confidence display. When CONF is
+    # hidden, occupy its first status row instead of removing MADS with it.
+    mads_label_y, mads_lamp_y = mads_row
+    draw_column_text(tr("MADS"), mads_label_y, TESLA_STATUS_LABEL_SIZE, palette.max_inactive)
+    lamp_top, lamp_bottom = tesla_mads_lamp_colors(self._tesla_mads_active)
+    draw_status_lamp(mads_lamp_y, lamp_top, lamp_bottom)
 
   def _render(self, rect: rl.Rectangle) -> None:
     # BluePilot: Draw header gradient at full content width (not offset by confidence ball)
@@ -289,7 +305,10 @@ class HudRendererBP(HudRendererSP):
     self.road_name_renderer.render(rect)
     self.speed_limit_renderer.render(rect)
     self.smart_cruise_control_renderer.render(rect)
-    self.turn_signal_controller.render(rect)
+    if self._tesla_style:
+      self._tesla_turn_signals.render(rect)
+    else:
+      self.turn_signal_controller.render(rect)
     self.circular_alerts_renderer.render(rect)
     self.rocket_fuel.render(rect, ui_state.sm)
 

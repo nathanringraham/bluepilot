@@ -210,14 +210,15 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
         self._content_rect.height,
       )
 
+    mads_active = tesla_mads_active(ui_state.sm)
     if show_tesla_confidence:
       self._confidence_ball.update_state_only()
       confidence_top, confidence_bottom = self._confidence_ball.current_colors()
       self._hud_renderer.set_tesla_confidence_status(
-        True, confidence_top, confidence_bottom, tesla_mads_active(ui_state.sm),
+        True, confidence_top, confidence_bottom, mads_active,
       )
     else:
-      self._hud_renderer.set_tesla_confidence_status(False)
+      self._hud_renderer.set_tesla_confidence_status(False, mads_active=mads_active)
 
     # BluePilot: Render HUD, driver state before gauges and alerts
     self._hud_renderer.set_gradient_rect(self._content_rect)

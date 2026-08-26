@@ -27,6 +27,7 @@ from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   tesla_column_text_x,
   tesla_lead_speed_color,
   tesla_lead_speed_state,
+  tesla_status_row_layout,
 )
 from openpilot.selfdrive.ui.bp.lib.tesla_status import tesla_mads_active
 from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP
@@ -107,6 +108,25 @@ def test_c4_tesla_status_stack_fits_confidence_strip() -> None:
   assert mads_lamp_y + outer_radius < rect.y + rect.height
   assert MICI_TESLA_STATUS_LAMP_RADIUS == 15
   assert MICI_TESLA_STATUS_LAMP_BEZEL == 3
+
+
+def test_c4_mads_uses_first_status_row_when_confidence_is_hidden() -> None:
+  rect = rl.Rectangle(476, 0, 60, 240)
+  center_x, conf_label_y, conf_lamp_y, mads_label_y, mads_lamp_y = mici_tesla_status_layout(
+    rect, confidence_enabled=False,
+  )
+
+  assert center_x == rect.x + rect.width / 2
+  assert conf_label_y is None
+  assert conf_lamp_y is None
+  assert (mads_label_y, mads_lamp_y) == (rect.y + 31, rect.y + 75)
+
+
+def test_c3x_mads_uses_first_status_row_when_confidence_is_hidden() -> None:
+  confidence_row, mads_row = tesla_status_row_layout(45, confidence_enabled=False)
+
+  assert confidence_row is None
+  assert mads_row == (351, 435)
 
 
 def test_confidence_ball_presentation_is_mutually_exclusive() -> None:

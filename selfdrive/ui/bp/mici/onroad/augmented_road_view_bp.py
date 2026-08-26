@@ -20,6 +20,7 @@ from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
 from openpilot.selfdrive.ui.bp.mici.onroad.lateral_debug_mici import LateralDebugMici
 from openpilot.selfdrive.ui.bp.mici.onroad.rad_racer_mici import RadRacerThemeMici
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import TeslaStyleRendererBP
+from openpilot.selfdrive.ui.bp.onroad.tesla_turn_signal import TeslaTurnSignalRenderer
 from openpilot.system.ui.widgets import Widget
 # BluePilot: unified theme selector (BPThemePack param)
 from openpilot.selfdrive.ui.bp.lib import theme_pack, theme_scene
@@ -106,6 +107,9 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     )
     self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
     self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
+    self._tesla_turn_signals = TeslaTurnSignalRenderer(compact=True)
+    self._tesla_turn_signals.set_enabled(self._tesla_style_enabled)
+    self._show_confidence_ball = self._bp_params.get_bool("BPShowConfidenceBall")
 
     self._theme_param_counter = 0
 
@@ -160,6 +164,8 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
       self._theme_param_counter = 0
       self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
       self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
+      self._tesla_turn_signals.set_enabled(self._tesla_style_enabled)
+      self._show_confidence_ball = self._bp_params.get_bool("BPShowConfidenceBall")
 
     self._tesla_style_renderer.set_dark_fraction(ui_state.tesla_dark_fraction)
     self._model_renderer.set_tesla_style(self._tesla_style_enabled, ui_state.tesla_dark_fraction)
@@ -221,6 +227,8 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     if _scene is not None and not _rad_racer:
       _scene.hero_y_scale = 0.90
       _scene.draw_foreground(self._content_rect, getattr(self, "_bp_hide_camera_view", False))
+    if self._tesla_style_enabled:
+      self._tesla_turn_signals.render(self._content_rect)
     if ui_state.started:
       self._alert_renderer.render(self._content_rect)
     self._hud_renderer.render(self._content_rect)
@@ -246,6 +254,7 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     )
     self._confidence_ball.set_tesla_status(
       self._tesla_style_enabled,
+      self._show_confidence_ball,
       tesla_mads_active(ui_state.sm),
       ui_state.tesla_dark_fraction,
     )

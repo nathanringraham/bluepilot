@@ -40,6 +40,7 @@ class TeslaPalette:
   road_shoulder: rl.Color
   lane_inner: rl.Color
   lane_outer: rl.Color
+  lane_change: rl.Color
   road_edge: rl.Color
   path_blue: rl.Color
   path_cyan: rl.Color
@@ -59,6 +60,7 @@ LIGHT_PALETTE = TeslaPalette(
   road_shoulder=rl.Color(126, 134, 139, 190),
   lane_inner=rl.Color(245, 247, 248, 210),
   lane_outer=rl.Color(222, 226, 228, 125),
+  lane_change=rl.Color(40, 145, 238, 220),
   road_edge=rl.Color(103, 112, 118, 175),
   path_blue=rl.Color(*TESLA_PATH_BLUE_MID, 185),
   path_cyan=rl.Color(*TESLA_PATH_BLUE_LIGHT, 115),
@@ -79,6 +81,7 @@ DARK_PALETTE = TeslaPalette(
   road_shoulder=rl.Color(82, 91, 98, 175),
   lane_inner=rl.Color(235, 238, 239, 225),
   lane_outer=rl.Color(177, 185, 190, 140),
+  lane_change=rl.Color(72, 166, 238, 235),
   road_edge=rl.Color(78, 89, 96, 170),
   path_blue=rl.Color(*TESLA_PATH_BLUE_MID, 200),
   path_cyan=rl.Color(*TESLA_PATH_BLUE_LIGHT, 125),
