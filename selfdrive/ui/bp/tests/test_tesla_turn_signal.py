@@ -7,6 +7,7 @@ from openpilot.selfdrive.ui.bp.lib.lane_change_visuals import tesla_lane_change_
 from openpilot.selfdrive.ui.bp.onroad.tesla_turn_signal import (
   TESLA_TURN_SIGNAL_GREEN,
   TESLA_TURN_SIGNAL_PERIOD_S,
+  TESLA_TURN_SIGNAL_SOURCE_GREEN,
   tesla_turn_signal_alpha,
   tesla_turn_signal_layout,
   tesla_turn_signal_state,
@@ -46,8 +47,8 @@ def test_tesla_turn_signals_reject_invalid_car_state() -> None:
 
 
 def test_tesla_turn_signal_uses_sampled_official_green_and_soft_pulse() -> None:
-  assert (TESLA_TURN_SIGNAL_GREEN.r, TESLA_TURN_SIGNAL_GREEN.g,
-          TESLA_TURN_SIGNAL_GREEN.b) == (15, 102, 54)
+  assert TESLA_TURN_SIGNAL_SOURCE_GREEN == (15, 102, 54)
+  assert TESLA_TURN_SIGNAL_GREEN.g > TESLA_TURN_SIGNAL_SOURCE_GREEN[1]
   assert tesla_turn_signal_alpha(0.0) == 255
   assert tesla_turn_signal_alpha(TESLA_TURN_SIGNAL_PERIOD_S / 2.0) < 40
   assert tesla_turn_signal_alpha(TESLA_TURN_SIGNAL_PERIOD_S) == 255
@@ -59,8 +60,9 @@ def test_tesla_turn_signal_layout_is_symmetric_and_scales_for_c4() -> None:
 
   assert tici.left_x + tici.right_x == 2160
   assert mici.left_x + mici.right_x == 1080
-  assert tici.size == 100
+  assert tici.size == 170
   assert mici.size == 50
+  assert tici.center_y > 300
 
 
 def test_lane_change_highlight_targets_only_destination_inner_lane() -> None:

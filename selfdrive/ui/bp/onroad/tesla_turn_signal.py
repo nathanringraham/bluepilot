@@ -14,8 +14,11 @@ from openpilot.system.ui.widgets import Widget
 
 # Sampled from Tesla's official owner-manual turn-signal icon. Tesla does not
 # publish this as a design token, so keep the measured source color documented.
-TESLA_TURN_SIGNAL_GREEN = rl.Color(15, 102, 54, 255)  # #0F6636
-TESLA_TURN_SIGNAL_GLOW = rl.Color(46, 211, 111, 255)
+# The in-car fill preserves that hue at higher luminance so it remains readable
+# on comma's display in direct sun and against the dark Tesla palette.
+TESLA_TURN_SIGNAL_SOURCE_GREEN = (15, 102, 54)  # #0F6636
+TESLA_TURN_SIGNAL_GREEN = rl.Color(46, 211, 111, 255)
+TESLA_TURN_SIGNAL_GLOW = rl.Color(83, 242, 145, 255)
 TESLA_TURN_SIGNAL_PERIOD_S = 0.75
 
 
@@ -48,11 +51,16 @@ def tesla_turn_signal_alpha(elapsed: float) -> int:
 def tesla_turn_signal_layout(rect: rl.Rectangle, compact: bool) -> TeslaTurnSignalLayout:
   """Place arrows just outside the central speed readout on either display."""
   display_scale = max(0.45, float(rect.height) / 1080.0)
-  size = 100.0 * display_scale
+  # The original 100px C3X arrow read much smaller on-device than in the Mac
+  # simulator. Preserve the unverified C4 dimensions while making C3X glanceable.
+  size = (100.0 if compact else 170.0) * display_scale
   center_x = rect.x + rect.width / 2.0
-  gap_fraction = 0.10 if compact else 0.075
+  gap_fraction = 0.10 if compact else 0.12
   center_gap = max(size * 1.35, rect.width * gap_fraction)
-  center_y = rect.y + rect.height * (0.21 if compact else 0.22)
+  # C3X's stock HUD paints a full-width black-to-transparent header gradient
+  # through y=300. Put the larger arrows mostly below it so there is no visual
+  # impression of a per-icon black tile. No signal background is drawn here.
+  center_y = rect.y + rect.height * (0.21 if compact else 0.31)
   return TeslaTurnSignalLayout(center_x - center_gap, center_x + center_gap, center_y, size)
 
 
