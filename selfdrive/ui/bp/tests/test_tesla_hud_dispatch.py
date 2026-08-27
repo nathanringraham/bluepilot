@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pyray as rl
 
+from openpilot.bluepilot.ui.lib.bp_shaders import circle_shader_screen_space
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import confidence_ball_colors
 from openpilot.selfdrive.ui.bp.mici.onroad.confidence_ball_bp import (
   MICI_TESLA_STATUS_LAMP_BEZEL,
@@ -104,6 +105,11 @@ def test_tesla_set_speed_has_thin_black_eight_point_outline() -> None:
     (-2, 0), (2, 0),
     (-2, 2), (0, 2), (2, 2),
   }
+
+
+def test_status_lamp_shader_geometry_matches_scaled_framebuffer() -> None:
+  assert circle_shader_screen_space(168, 435, 24, 0.5, 540) == (84, 322.5, 12)
+  assert circle_shader_screen_space(30, 156, 15, 1.0, 240) == (30, 84, 15)
 
 
 def test_tesla_left_column_rows_share_one_centerline() -> None:
