@@ -14,7 +14,7 @@ from openpilot.selfdrive.ui.bp.lib.tesla_status import (
   draw_tesla_status_lamp,
   tesla_mads_lamp_colors,
 )
-from openpilot.selfdrive.ui.bp.onroad.tesla_turn_signal import TeslaTurnSignalRenderer
+from openpilot.selfdrive.ui.bp.onroad.tesla_turn_signal import TeslaBlueTurnSignalController
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
@@ -36,6 +36,8 @@ TESLA_STATUS_LAMP_BEZEL = 5
 TESLA_CONF_BALL_RADIUS = TESLA_STATUS_LAMP_RADIUS
 TESLA_MADS_LAMP_RADIUS = TESLA_STATUS_LAMP_RADIUS
 TESLA_TEXT_SHADOW = rl.Color(0, 0, 0, 105)
+TESLA_SET_SPEED_OUTLINE = rl.Color(0, 0, 0, 160)
+TESLA_SET_SPEED_OUTLINE_WIDTH = 2
 TESLA_LEAD_FASTER_COLOR = rl.Color(80, 216, 112, 255)
 TESLA_LEAD_SLOW_YELLOW = rl.Color(255, 211, 30, 255)
 TESLA_LEAD_SLOW_RED = rl.Color(235, 62, 52, 255)
@@ -45,6 +47,18 @@ TESLA_LEAD_FULL_RED_DELTA_MPS = 15.0 / 2.2369362920544
 def tesla_column_text_x(column_center_x: float, text_width: float) -> float:
   """Return a left edge that keeps every Tesla HUD row on one centerline."""
   return column_center_x - text_width / 2
+
+
+def tesla_text_outline_offsets(width: int) -> tuple[tuple[int, int], ...]:
+  """Eight-point outline used to keep the Tesla set speed legible in Light mode."""
+  return tuple(
+    (x, y)
+    for x, y in (
+      (-width, -width), (0, -width), (width, -width),
+      (-width, 0), (width, 0),
+      (-width, width), (0, width), (width, width),
+    )
+  )
 
 
 def tesla_status_row_layout(y: float, confidence_enabled: bool
@@ -120,8 +134,7 @@ class HudRendererBP(HudRendererSP):
     self._tesla_confidence_enabled = False
     self._tesla_confidence_colors = (rl.Color(50, 50, 50, 255), rl.Color(13, 13, 13, 255))
     self._tesla_mads_active = False
-    self._tesla_turn_signals = TeslaTurnSignalRenderer()
-    self._tesla_turn_signals.set_enabled(self._tesla_style)
+    self._tesla_turn_signals = TeslaBlueTurnSignalController()
     # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
     self._lateral_mode = None
 
@@ -150,7 +163,9 @@ class HudRendererBP(HudRendererSP):
       self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
       self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
       self._tesla_style = theme_pack.tesla_active(self._bp_params)
-      self._tesla_turn_signals.set_enabled(self._tesla_style)
+
+    if self._tesla_style:
+      self._tesla_turn_signals.update()
 
     if self._show_lateral_control:
       sm = ui_state.sm
@@ -205,13 +220,12 @@ class HudRendererBP(HudRendererSP):
 
     speed_text_width = measure_text_cached(self._font_medium, set_speed_text, TESLA_SET_SPEED_SIZE).x
     speed_pos = rl.Vector2(tesla_column_text_x(column_center_x, speed_text_width), y - 9)
-    rl.draw_text_ex(
-      self._font_medium, set_speed_text,
-      rl.Vector2(speed_pos.x + 2, speed_pos.y + 2),
-      TESLA_SET_SPEED_SIZE,
-      0,
-      TESLA_TEXT_SHADOW,
-    )
+    for offset_x, offset_y in tesla_text_outline_offsets(TESLA_SET_SPEED_OUTLINE_WIDTH):
+      rl.draw_text_ex(
+        self._font_medium, set_speed_text,
+        rl.Vector2(speed_pos.x + offset_x, speed_pos.y + offset_y),
+        TESLA_SET_SPEED_SIZE, 0, TESLA_SET_SPEED_OUTLINE,
+      )
     rl.draw_text_ex(
       self._font_medium, set_speed_text, speed_pos, TESLA_SET_SPEED_SIZE, 0, value_color,
     )

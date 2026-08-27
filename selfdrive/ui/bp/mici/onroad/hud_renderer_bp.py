@@ -38,7 +38,6 @@ class MiciHudRendererBP(HudRenderer):
     self._animate_steering_wheel = self._bp_params.get_bool("BPAnimateSteeringWheel")
     self._wheel_icon_style = ensure_steering_wheel_icon_style_initialized(self._bp_params, SteeringWheelIconStyle.COMMA_4)
     self._theme_pack = theme_pack.get_active_pack(force=True)
-    self._tesla_style = theme_pack.tesla_active(self._bp_params)
     self._animate_wheel_param_counter = 0
     self.show_lateral_control = False
     # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
@@ -58,7 +57,6 @@ class MiciHudRendererBP(HudRenderer):
       self._animate_steering_wheel = self._bp_params.get_bool("BPAnimateSteeringWheel")
       self._wheel_icon_style = get_steering_wheel_icon_style(self._bp_params, SteeringWheelIconStyle.COMMA_4)
       self._theme_pack = theme_pack.get_active_pack()
-      self._tesla_style = theme_pack.tesla_active(self._bp_params)
 
     if self._bp_params.get_bool("ShowBrakeStatus"):
       sm = ui_state.sm
@@ -119,13 +117,12 @@ class MiciHudRendererBP(HudRenderer):
     rotation = -ui_state.sm['carState'].steeringAngleDeg if self._animate_steering_wheel else 0.0
 
     turn_intent_margin = 25
-    if not self._tesla_style:
-      self._turn_intent.render(rl.Rectangle(
-        pos_x - wheel_txt.width / 2 - turn_intent_margin,
-        pos_y - wheel_txt.height / 2 - turn_intent_margin,
-        wheel_txt.width + turn_intent_margin * 2,
-        wheel_txt.height + turn_intent_margin * 2,
-      ))
+    self._turn_intent.render(rl.Rectangle(
+      pos_x - wheel_txt.width / 2 - turn_intent_margin,
+      pos_y - wheel_txt.height / 2 - turn_intent_margin,
+      wheel_txt.width + turn_intent_margin * 2,
+      wheel_txt.height + turn_intent_margin * 2,
+    ))
 
     src_rect = rl.Rectangle(0, 0, wheel_txt.width, wheel_txt.height)
     dest_rect = rl.Rectangle(pos_x, pos_y, wheel_txt.width, wheel_txt.height)
