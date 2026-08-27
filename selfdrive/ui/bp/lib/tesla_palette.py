@@ -49,6 +49,7 @@ class TeslaPalette:
   set_speed: rl.Color
   max_active: rl.Color
   max_inactive: rl.Color
+  wheel_active: rl.Color
 
 
 LIGHT_PALETTE = TeslaPalette(
@@ -69,6 +70,7 @@ LIGHT_PALETTE = TeslaPalette(
   set_speed=rl.Color(174, 180, 184, 255),
   max_active=rl.Color(40, 145, 238, 255),
   max_inactive=rl.Color(135, 142, 147, 255),
+  wheel_active=rl.Color(25, 105, 190, 255),
 )
 
 
@@ -90,6 +92,7 @@ DARK_PALETTE = TeslaPalette(
   set_speed=rl.Color(196, 201, 204, 255),
   max_active=rl.Color(72, 166, 238, 255),
   max_inactive=rl.Color(132, 140, 145, 255),
+  wheel_active=rl.Color(42, 126, 210, 255),
 )
 
 
@@ -112,6 +115,17 @@ def palette_for_dark_fraction(dark_fraction: float) -> TeslaPalette:
     name: blend_color(getattr(LIGHT_PALETTE, name), getattr(DARK_PALETTE, name), amount)
     for name in TeslaPalette.__dataclass_fields__
   })
+
+
+def tesla_wheel_color(enabled: bool, longitudinal_active: bool,
+                      dark_fraction: float, alpha: int = 255) -> rl.Color:
+  """Tint either built-in wheel style only while Tesla longitudinal is active."""
+  alpha = max(0, min(int(alpha), 255))
+  if not (enabled and longitudinal_active):
+    return rl.Color(255, 255, 255, alpha)
+
+  active = palette_for_dark_fraction(dark_fraction).wheel_active
+  return rl.Color(active.r, active.g, active.b, alpha)
 
 
 class TeslaAutoPaletteState:

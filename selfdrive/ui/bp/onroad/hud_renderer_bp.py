@@ -7,6 +7,7 @@ from openpilot.bluepilot.ui.lib.bp_shaders import draw_shader_circle_gradient
 from openpilot.selfdrive.ui.onroad.hud_renderer import UI_CONFIG, FONT_SIZES, COLORS, CRUISE_DISABLED_CHAR
 from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP, SLA_ACTIVE_COLOR
 from openpilot.selfdrive.ui.bp.onroad.exp_button_bp import ExpButtonBP
+from openpilot.selfdrive.ui.bp.onroad.speed_limit_renderer_bp import SpeedLimitRendererBP
 from openpilot.selfdrive.ui.bp.lib import theme_pack
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import longitudinal_control_active
 from openpilot.selfdrive.ui.bp.lib.tesla_palette import palette_for_dark_fraction
@@ -65,7 +66,7 @@ def tesla_status_row_layout(y: float, confidence_enabled: bool
                             ) -> tuple[tuple[float, float] | None, tuple[float, float]]:
   """Place MADS in the first available Tesla status row when CONF is hidden."""
   confidence_row = (y + 306, y + 390) if confidence_enabled else None
-  mads_row = (y + 430, y + 505) if confidence_enabled else (y + 306, y + 390)
+  mads_row = (y + 430, y + 514) if confidence_enabled else (y + 306, y + 390)
   return confidence_row, mads_row
 
 
@@ -138,6 +139,9 @@ class HudRendererBP(HudRendererSP):
     # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
     self._lateral_mode = None
 
+  def _make_speed_limit_renderer(self) -> SpeedLimitRendererBP:
+    return SpeedLimitRendererBP()
+
   def set_gradient_rect(self, rect: rl.Rectangle):
     """Set full-width rect for header gradient (when HUD renders offset for confidence ball)."""
     self._gradient_rect = rect
@@ -163,6 +167,8 @@ class HudRendererBP(HudRendererSP):
       self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
       self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
       self._tesla_style = theme_pack.tesla_active(self._bp_params)
+
+    self.speed_limit_renderer.set_tesla_style(self._tesla_style)
 
     if self._tesla_style:
       self._tesla_turn_signals.update()

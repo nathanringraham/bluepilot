@@ -33,7 +33,13 @@ from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   tesla_status_row_layout,
   tesla_text_outline_offsets,
 )
+from openpilot.selfdrive.ui.bp.onroad.speed_limit_renderer_bp import (
+  SpeedLimitRendererBP,
+  tesla_speed_limit_sign_rect,
+)
 from openpilot.selfdrive.ui.bp.lib.tesla_status import tesla_mads_active
+from openpilot.selfdrive.ui.onroad.hud_renderer import UI_CONFIG
+from openpilot.selfdrive.ui.sunnypilot.onroad.speed_limit import SpeedLimitRenderer
 from openpilot.selfdrive.ui.sunnypilot.onroad.hud_renderer import HudRendererSP
 from openpilot.selfdrive.ui.ui_state import UIStatus
 
@@ -51,6 +57,26 @@ def test_non_tesla_theme_delegates_to_unchanged_set_speed_renderer(monkeypatch):
   renderer._draw_set_speed(rect)
 
   assert calls == [(renderer, rect)]
+
+
+def test_non_tesla_speed_limit_delegates_to_stock_renderer(monkeypatch):
+  renderer = object.__new__(SpeedLimitRendererBP)
+  renderer._tesla_style = False
+  rect = rl.Rectangle(0, 0, 2160, 1080)
+  calls = []
+
+  monkeypatch.setattr(SpeedLimitRenderer, "_render", lambda instance, draw_rect: calls.append((instance, draw_rect)))
+  renderer._render(rect)
+
+  assert calls == [(renderer, rect)]
+
+
+def test_tesla_speed_limit_keeps_c3x_stock_footprint() -> None:
+  rect = rl.Rectangle(0, 0, 2160, 1080)
+  sign = tesla_speed_limit_sign_rect(rect, is_metric=False)
+
+  assert (sign.x, sign.y) == (60 + UI_CONFIG.set_speed_width_imperial + 24, 39)
+  assert (sign.width, sign.height) == (UI_CONFIG.set_speed_width_imperial, UI_CONFIG.set_speed_height + 12)
 
 
 class FakeSubMaster:
@@ -149,6 +175,13 @@ def test_c3x_mads_uses_first_status_row_when_confidence_is_hidden() -> None:
 
   assert confidence_row is None
   assert mads_row == (351, 435)
+
+
+def test_c3x_confidence_and_mads_lamps_have_equal_label_spacing() -> None:
+  confidence_row, mads_row = tesla_status_row_layout(45, confidence_enabled=True)
+
+  assert confidence_row is not None
+  assert confidence_row[1] - confidence_row[0] == mads_row[1] - mads_row[0] == 84
 
 
 def test_confidence_ball_presentation_is_mutually_exclusive() -> None:

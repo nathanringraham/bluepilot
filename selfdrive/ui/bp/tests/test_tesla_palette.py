@@ -8,6 +8,7 @@ from openpilot.selfdrive.ui.bp.lib.tesla_palette import (
   palette_for_dark_fraction,
   tesla_blue_cycle_color,
   tesla_path_gradient_colors,
+  tesla_wheel_color,
 )
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import TeslaStyleRendererBP
 
@@ -103,6 +104,20 @@ def test_only_max_label_uses_longitudinal_state_color():
   for palette in (LIGHT_PALETTE, DARK_PALETTE):
     assert palette.max_active.b > palette.max_active.r
     assert abs(palette.max_inactive.r - palette.max_inactive.b) < 16
+
+
+def test_tesla_wheel_is_blue_only_while_longitudinal_is_active():
+  disabled = tesla_wheel_color(True, False, 0.0, 180)
+  non_tesla = tesla_wheel_color(False, True, 1.0, 180)
+  light_active = tesla_wheel_color(True, True, 0.0, 180)
+  dark_active = tesla_wheel_color(True, True, 1.0, 180)
+
+  assert _rgba(disabled) == (255, 255, 255, 180)
+  assert _rgba(non_tesla) == (255, 255, 255, 180)
+  for active in (light_active, dark_active):
+    assert active.b > active.g > active.r
+    assert active.a == 180
+  assert _brightness(light_active) < _brightness(LIGHT_PALETTE.max_active)
 
 
 def test_centered_ego_actor_is_removed():
