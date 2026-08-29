@@ -17,6 +17,8 @@ from openpilot.selfdrive.ui.bp.onroad.hud_renderer_bp import (
   TESLA_LEAD_LABEL_SIZE,
   TESLA_LEAD_SLOW_RED,
   TESLA_LEAD_SLOW_YELLOW,
+  TESLA_LEAD_SPEED_OUTLINE,
+  TESLA_LEAD_SPEED_OUTLINE_WIDTH,
   TESLA_LEAD_SPEED_SIZE,
   TESLA_MADS_LAMP_RADIUS,
   TESLA_MAX_LABEL_SIZE,
@@ -120,11 +122,13 @@ def test_tesla_max_and_lead_typography_is_enlarged() -> None:
   assert TESLA_STATUS_LAMP_RADIUS < TESLA_STATUS_LABEL_SIZE
 
 
-def test_tesla_set_speed_has_thin_black_eight_point_outline() -> None:
+def test_tesla_set_and_lead_speeds_share_thin_black_eight_point_outline() -> None:
   offsets = tesla_text_outline_offsets(TESLA_SET_SPEED_OUTLINE_WIDTH)
 
   assert TESLA_SET_SPEED_OUTLINE_WIDTH == 2
   assert _rgba(TESLA_SET_SPEED_OUTLINE) == (0, 0, 0, 160)
+  assert TESLA_LEAD_SPEED_OUTLINE_WIDTH == TESLA_SET_SPEED_OUTLINE_WIDTH
+  assert _rgba(TESLA_LEAD_SPEED_OUTLINE) == _rgba(TESLA_SET_SPEED_OUTLINE)
   assert len(offsets) == 8
   assert set(offsets) == {
     (-2, -2), (0, -2), (2, -2),

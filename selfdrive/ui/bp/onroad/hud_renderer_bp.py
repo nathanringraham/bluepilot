@@ -39,6 +39,8 @@ TESLA_MADS_LAMP_RADIUS = TESLA_STATUS_LAMP_RADIUS
 TESLA_TEXT_SHADOW = rl.Color(0, 0, 0, 105)
 TESLA_SET_SPEED_OUTLINE = rl.Color(0, 0, 0, 160)
 TESLA_SET_SPEED_OUTLINE_WIDTH = 2
+TESLA_LEAD_SPEED_OUTLINE = TESLA_SET_SPEED_OUTLINE
+TESLA_LEAD_SPEED_OUTLINE_WIDTH = TESLA_SET_SPEED_OUTLINE_WIDTH
 TESLA_LEAD_FASTER_COLOR = rl.Color(80, 216, 112, 255)
 TESLA_LEAD_SLOW_YELLOW = rl.Color(255, 211, 30, 255)
 TESLA_LEAD_SLOW_RED = rl.Color(235, 62, 52, 255)
@@ -255,14 +257,23 @@ class HudRendererBP(HudRendererSP):
 
     lead_state = tesla_lead_speed_state(ui_state.sm)
 
-    def draw_column_text(text: str, text_y: float, text_size: int, color: rl.Color) -> None:
+    def draw_column_text(text: str, text_y: float, text_size: int, color: rl.Color,
+                         outlined: bool = False) -> None:
       text_width = measure_text_cached(self._font_semi_bold, text, text_size, max_spacing).x
       text_pos = rl.Vector2(tesla_column_text_x(column_center_x, text_width), text_y)
-      rl.draw_text_ex(
-        self._font_semi_bold, text,
-        rl.Vector2(text_pos.x + 1, text_pos.y + 1),
-        text_size, max_spacing, TESLA_TEXT_SHADOW,
-      )
+      if outlined:
+        for offset_x, offset_y in tesla_text_outline_offsets(TESLA_LEAD_SPEED_OUTLINE_WIDTH):
+          rl.draw_text_ex(
+            self._font_semi_bold, text,
+            rl.Vector2(text_pos.x + offset_x, text_pos.y + offset_y),
+            text_size, max_spacing, TESLA_LEAD_SPEED_OUTLINE,
+          )
+      else:
+        rl.draw_text_ex(
+          self._font_semi_bold, text,
+          rl.Vector2(text_pos.x + 1, text_pos.y + 1),
+          text_size, max_spacing, TESLA_TEXT_SHADOW,
+        )
       rl.draw_text_ex(self._font_semi_bold, text, text_pos, text_size, max_spacing, color)
 
     if lead_state is not None:
@@ -271,11 +282,11 @@ class HudRendererBP(HudRendererSP):
       lead_value = str(round(lead_speed * self.speed_conv))
       lead_color = tesla_lead_speed_color(lead_speed, ego_speed)
 
-      for text, text_y, text_size, color in (
-        (lead_label, y + 184, TESLA_LEAD_LABEL_SIZE, palette.max_inactive),
-        (lead_value, y + 238, TESLA_LEAD_SPEED_SIZE, lead_color),
+      for text, text_y, text_size, color, outlined in (
+        (lead_label, y + 184, TESLA_LEAD_LABEL_SIZE, palette.max_inactive, False),
+        (lead_value, y + 238, TESLA_LEAD_SPEED_SIZE, lead_color, True),
       ):
-        draw_column_text(text, text_y, text_size, color)
+        draw_column_text(text, text_y, text_size, color, outlined)
 
     def draw_status_lamp(center_y: float, top: rl.Color, bottom: rl.Color) -> None:
       draw_tesla_status_lamp(
