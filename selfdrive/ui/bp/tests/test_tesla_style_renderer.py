@@ -9,6 +9,8 @@ import pyray as rl
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
   LEAD_HEIGHT_TO_WIDTH,
   LEAD_MAX_WIDTH_PX,
+  LEAD_SHADOW_CENTER_Y_FRACTION,
+  LEAD_SHADOW_RADIUS_Y_FRACTION,
   LEAD_SPRITE_ASSET,
   LeadFadeState,
   ROAD_CHAIN_POINT_COUNT,
@@ -176,6 +178,14 @@ def test_lead_actor_obeys_smaller_display_scaled_clamps() -> None:
   assert lead_actor_width(1000.0, 1080.0, 5.0) == pytest.approx(LEAD_MAX_WIDTH_PX)
   assert lead_actor_width(1000.0, 1080.0, 55.0) == pytest.approx(105.0)
   assert lead_actor_width(1.0, 540.0, 100.0) == pytest.approx(15.0)
+
+
+def test_lead_contact_shadow_stays_tucked_under_tires() -> None:
+  shadow_top = LEAD_SHADOW_CENTER_Y_FRACTION - LEAD_SHADOW_RADIUS_Y_FRACTION
+  shadow_bottom = LEAD_SHADOW_CENTER_Y_FRACTION + LEAD_SHADOW_RADIUS_Y_FRACTION
+
+  assert -0.05 < shadow_top < -0.02
+  assert -0.01 < shadow_bottom <= 0.0
 
 
 def test_close_lead_base_is_clamped_inside_viewport() -> None:

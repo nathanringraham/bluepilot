@@ -32,6 +32,9 @@ LEAD_SPRITE_ASSET = "images/tesla_lead_sedan.png"
 LEAD_FULL_SCALE_DISTANCE_M = 8.0
 LEAD_FAR_SCALE_DISTANCE_M = 55.0
 LEAD_FAR_DISTANCE_SCALE = 0.70
+LEAD_SHADOW_RADIUS_X_FRACTION = 0.36
+LEAD_SHADOW_RADIUS_Y_FRACTION = 0.018
+LEAD_SHADOW_CENTER_Y_FRACTION = -0.020
 LEAD_FADE_SECONDS = 0.25
 ROAD_CHAIN_POINT_COUNT = 9
 ROAD_NEUTRAL_FAR_Y_FRACTION = 0.60
@@ -433,11 +436,15 @@ class TeslaStyleRendererBP:
 
     neutral_outline = blend_color(rl.Color(82, 92, 98, 245), rl.Color(205, 212, 216, 245), self._dark_fraction)
     outline = fade(tesla_closing_color(v_rel, neutral_outline))
-    neutral_shadow = blend_color(rl.Color(0, 0, 0, 54), rl.Color(0, 0, 0, 72), self._dark_fraction)
+    neutral_shadow = blend_color(rl.Color(0, 0, 0, 38), rl.Color(0, 0, 0, 48), self._dark_fraction)
     shadow = fade(tesla_closing_color(v_rel, neutral_shadow))
 
-    rl.draw_ellipse(int(cx), int(base_y + height * 0.02),
-                    max(1, int(width * 0.44)), max(1, int(height * 0.07)),
+    # The PNG's tire contact pixels end about 2% above its destination bottom.
+    # Keep this subtle ellipse tucked behind that contact patch so the actor
+    # reads as planted on the road instead of floating above a separate oval.
+    rl.draw_ellipse(int(cx), int(base_y + height * LEAD_SHADOW_CENTER_Y_FRACTION),
+                    max(1, int(width * LEAD_SHADOW_RADIUS_X_FRACTION)),
+                    max(1, int(height * LEAD_SHADOW_RADIUS_Y_FRACTION)),
                     shadow)
 
     if self._lead_sedan_texture is None:
