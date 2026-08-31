@@ -11,6 +11,8 @@ from openpilot.common.params import Params
 from opendbc.car import structs
 from openpilot.sunnypilot import IntEnumBase
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
+from openpilot.selfdrive.ui.bp.lib import theme_pack
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import tesla_closing_color
 
 FONT_SIZE = 68
 DIST_FONT_SIZE = 55
@@ -43,9 +45,11 @@ class MiciComplication(Widget):
     self._last_active_time = 0.0
 
     self.params = Params()
+    self._tesla_style = theme_pack.tesla_active(self.params)
 
   def _update_state(self):
      self._render_type = self.params.get("mici_complication")
+     self._tesla_style = theme_pack.tesla_active(self.params)
      bp_ui_log.state("MiciComplication", "render_type", self._render_type)
 
   def _render(self, rect: rl.Rectangle) -> None:
@@ -125,7 +129,12 @@ class MiciComplication(Widget):
     x = pos_x + WIDTH / 2
     y = speed_pos.y - 10
     chevron = [(x + (size * 1.25), y + size), (x, y), (x - (size * 1.25), y + size)]
-    rl.draw_triangle_fan(chevron, len(chevron), rl.Color(201, 34, 49, int(150 * fade_ratio)))
+    if self._tesla_style:
+      neutral = rl.Color(154, 162, 167, int(220 * fade_ratio))
+      indicator_color = tesla_closing_color(self.vRel, neutral)
+    else:
+      indicator_color = rl.Color(201, 34, 49, int(150 * fade_ratio))
+    rl.draw_triangle_fan(chevron, len(chevron), indicator_color)
 
   def _render_current_speed(self, rect: rl.Rectangle) -> None:
     # BluePilot: Respect "Speedometer: Hide from Onroad Screen" (HideVEgoUI) from Visuals

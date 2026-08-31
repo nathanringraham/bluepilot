@@ -3,10 +3,13 @@ from openpilot.selfdrive.ui.bp.lib.tesla_palette import (
   LIGHT_PALETTE,
   TESLA_PATH_BLUE_DEEP,
   TESLA_PATH_BLUE_LIGHT,
+  TESLA_CLOSING_AMBER,
+  TESLA_CLOSING_RED,
   TeslaAutoPaletteState,
   blend_color,
   palette_for_dark_fraction,
   tesla_blue_cycle_color,
+  tesla_closing_color,
   tesla_path_gradient_colors,
   tesla_wheel_color,
 )
@@ -148,3 +151,27 @@ def test_tesla_path_opacity_scales_without_changing_hue():
 
   assert [(c.r, c.g, c.b) for c in faded] == [(c.r, c.g, c.b) for c in full]
   assert faded[0].a == round(full[0].a * 0.25)
+
+
+def test_closing_speed_ramp_is_neutral_then_amber_then_red():
+  neutral = LIGHT_PALETTE.road_edge
+
+  assert _rgba(tesla_closing_color(2.0, neutral)) == _rgba(neutral)
+  assert _rgba(tesla_closing_color(-0.75, neutral)) == _rgba(neutral)
+  amber = tesla_closing_color(-3.0, neutral)
+  red = tesla_closing_color(-8.0, neutral)
+  assert _rgba(amber) == (*_rgba(TESLA_CLOSING_AMBER)[:3], neutral.a)
+  assert _rgba(red) == (*_rgba(TESLA_CLOSING_RED)[:3], neutral.a)
+
+
+def test_closing_speed_ramp_changes_smoothly_and_preserves_alpha():
+  neutral = LIGHT_PALETTE.road_edge
+  mild = tesla_closing_color(-1.5, neutral)
+  moderate = tesla_closing_color(-4.5, neutral)
+  severe = tesla_closing_color(-7.0, neutral)
+
+  assert mild.a == moderate.a == severe.a == neutral.a
+  assert mild.r < moderate.r
+  assert moderate.g > severe.g
+  assert severe.r - severe.g > moderate.r - moderate.g
+  assert _rgba(tesla_closing_color(float("nan"), neutral)) == _rgba(neutral)

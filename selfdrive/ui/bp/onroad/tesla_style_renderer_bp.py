@@ -12,7 +12,12 @@ from dataclasses import dataclass
 import numpy as np
 import pyray as rl
 
-from openpilot.selfdrive.ui.bp.lib.tesla_palette import blend_color, palette_for_dark_fraction
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import (
+  blend_color,
+  palette_for_dark_fraction,
+  TESLA_CLOSING_START_MPS,
+  tesla_closing_color,
+)
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import tesla_geometry_reliable
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
@@ -419,14 +424,17 @@ class TeslaStyleRendererBP:
                           rl.Vector2(float(end[0]), float(end[1])), 3.0, shoulder)
 
   def _draw_lead_vehicle(self, cx: float, base_y: float, width: float,
-                         opacity: float = 1.0) -> None:
-    """Draw the reference-derived rear/overhead sedan."""
+                         v_rel: float, opacity: float = 1.0) -> None:
+    """Draw the reference-derived rear/overhead sedan with a risk-aware halo."""
     height = width * LEAD_HEIGHT_TO_WIDTH
 
     def fade(color: rl.Color) -> rl.Color:
       return color_with_opacity(color, opacity)
 
-    shadow = fade(blend_color(rl.Color(0, 0, 0, 54), rl.Color(0, 0, 0, 72), self._dark_fraction))
+    neutral_outline = blend_color(rl.Color(82, 92, 98, 245), rl.Color(205, 212, 216, 245), self._dark_fraction)
+    outline = fade(tesla_closing_color(v_rel, neutral_outline))
+    neutral_shadow = blend_color(rl.Color(0, 0, 0, 54), rl.Color(0, 0, 0, 72), self._dark_fraction)
+    shadow = fade(tesla_closing_color(v_rel, neutral_shadow))
 
     rl.draw_ellipse(int(cx), int(base_y + height * 0.02),
                     max(1, int(width * 0.44)), max(1, int(height * 0.07)),
@@ -439,6 +447,19 @@ class TeslaStyleRendererBP:
     source = rl.Rectangle(0, 0, texture.width, texture.height)
     destination = rl.Rectangle(cx, base_y, width, height)
     origin = rl.Vector2(width / 2.0, height)
+
+    # The detailed sprite already has a natural edge. Add an offset silhouette
+    # only once the closing-speed feature enters its amber/red range.
+    closing_risk = np.isfinite(v_rel) and -float(v_rel) > TESLA_CLOSING_START_MPS
+    if closing_risk:
+      outline_px = max(1.0, width * 0.012)
+      for offset_x, offset_y in ((-outline_px, 0.0), (outline_px, 0.0),
+                                 (0.0, -outline_px), (0.0, outline_px)):
+        outlined_destination = rl.Rectangle(
+          destination.x + offset_x, destination.y + offset_y,
+          destination.width, destination.height,
+        )
+        rl.draw_texture_pro(texture, source, outlined_destination, origin, 0.0, outline)
 
     rl.draw_texture_pro(texture, source, destination, origin, 0.0,
                         fade(rl.Color(255, 255, 255, 255)))
@@ -473,8 +494,8 @@ class TeslaStyleRendererBP:
     if display_values is None or opacity <= 0.0:
       return
 
-    d_rel, y_rel, _ = display_values
-    if not all(np.isfinite(value) for value in (d_rel, y_rel)):
+    d_rel, y_rel, v_rel = display_values
+    if not all(np.isfinite(value) for value in (d_rel, y_rel, v_rel)):
       return
 
     point = self._project(model_renderer, rect, d_rel, y_rel)
@@ -490,4 +511,4 @@ class TeslaStyleRendererBP:
             rect.y - height <= base_y):
       return
     base_y = lead_actor_base_y(base_y, width, rect)
-    self._draw_lead_vehicle(cx, base_y, width, opacity)
+    self._draw_lead_vehicle(cx, base_y, width, v_rel, opacity)
