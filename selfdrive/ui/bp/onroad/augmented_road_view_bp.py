@@ -100,6 +100,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     self._tesla_style_renderer = TeslaStyleRendererBP(dark_fraction=ui_state.tesla_dark_fraction)
     self._tesla_style_enabled = theme_pack.tesla_active(self._bp_params)
     self._tesla_style_renderer.set_enabled(self._tesla_style_enabled)
+    self.alert_renderer.set_tesla_style(self._tesla_style_enabled, ui_state.tesla_dark_fraction)
 
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
@@ -127,6 +128,7 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
     # Ambient palette changes are frame-driven; Params selection remains polled.
     self._tesla_style_renderer.set_dark_fraction(ui_state.tesla_dark_fraction)
     self.model_renderer.set_tesla_style(self._tesla_style_enabled, ui_state.tesla_dark_fraction)
+    self.alert_renderer.set_tesla_style(self._tesla_style_enabled, ui_state.tesla_dark_fraction)
 
     self._switch_stream_if_needed(ui_state.sm)
     self._update_calibration()
