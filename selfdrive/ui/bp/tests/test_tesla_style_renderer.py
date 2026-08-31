@@ -1,3 +1,5 @@
+import struct
+from importlib.resources import as_file, files
 from types import SimpleNamespace
 
 import numpy as np
@@ -6,16 +8,12 @@ import pyray as rl
 
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
   LEAD_HEIGHT_TO_WIDTH,
+  LEAD_MAX_WIDTH_PX,
+  LEAD_SPRITE_ASSET,
   LeadFadeState,
   ROAD_CHAIN_POINT_COUNT,
   ROAD_NEUTRAL_FAR_Y_FRACTION,
   RoadGeometryState,
-  SEDAN_BODY_POINTS,
-  SEDAN_ROOF_POINTS,
-  SEDAN_WHEEL_CENTER_X,
-  SEDAN_WHEEL_CENTER_Y,
-  SEDAN_WHEEL_RADIUS_X,
-  SEDAN_WHEEL_RADIUS_Y,
   TeslaStyleRendererBP,
   color_with_opacity,
   extend_road_edges_to_bottom,
@@ -167,16 +165,16 @@ def test_lead_actor_shrinks_progressively_with_distance() -> None:
   middle = lead_actor_width(100.0, 1080.0, 30.0)
   far = lead_actor_width(100.0, 1080.0, 55.0)
 
-  assert near == pytest.approx(62.0)
+  assert near == pytest.approx(55.0)
   assert near > middle > far
-  assert middle == pytest.approx(53.293617, abs=1e-6)
-  assert far == pytest.approx(43.4)
+  assert middle == pytest.approx(47.276596, abs=1e-6)
+  assert far == pytest.approx(38.5)
 
 
 def test_lead_actor_obeys_smaller_display_scaled_clamps() -> None:
   assert lead_actor_width(1.0, 1080.0, 100.0) == pytest.approx(30.0)
-  assert lead_actor_width(1000.0, 1080.0, 5.0) == pytest.approx(180.0)
-  assert lead_actor_width(1000.0, 1080.0, 55.0) == pytest.approx(126.0)
+  assert lead_actor_width(1000.0, 1080.0, 5.0) == pytest.approx(LEAD_MAX_WIDTH_PX)
+  assert lead_actor_width(1000.0, 1080.0, 55.0) == pytest.approx(105.0)
   assert lead_actor_width(1.0, 540.0, 100.0) == pytest.approx(15.0)
 
 
@@ -185,33 +183,27 @@ def test_close_lead_base_is_clamped_inside_viewport() -> None:
   width = 90.0
 
   assert lead_actor_base_y(400.0, width, rect) == pytest.approx(400.0)
-  assert lead_actor_base_y(700.0, width, rect) == pytest.approx(578.0)
+  expected_base = rect.y + rect.height - max(24.0 * 0.5, width * LEAD_HEIGHT_TO_WIDTH * 0.14)
+  assert lead_actor_base_y(700.0, width, rect) == pytest.approx(expected_base)
 
 
 def test_sedan_proportions_keep_far_actor_at_road_horizon() -> None:
   far_width = lead_actor_width(1000.0, 540.0, 20.0)
   far_top = 335.0 - far_width * LEAD_HEIGHT_TO_WIDTH
 
-  assert LEAD_HEIGHT_TO_WIDTH == pytest.approx(0.74)
-  assert far_top >= 259.0
+  assert LEAD_HEIGHT_TO_WIDTH == pytest.approx(568.0 / 512.0)
+  assert far_top >= 258.0
 
 
-def test_sedan_normalized_geometry_stays_in_bounds() -> None:
-  assert all(-0.5 <= x <= 0.5 and -1.0 <= y <= 0.0 for x, y in SEDAN_BODY_POINTS)
-  assert max(abs(x) for x, _ in SEDAN_ROOF_POINTS) < max(abs(x) for x, _ in SEDAN_BODY_POINTS)
-  body_cross_products = []
-  for i in range(len(SEDAN_BODY_POINTS)):
-    a, b, c = SEDAN_BODY_POINTS[i - 2], SEDAN_BODY_POINTS[i - 1], SEDAN_BODY_POINTS[i]
-    body_cross_products.append((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]))
-  assert all(cross_product >= 0.0 for cross_product in body_cross_products)
+def test_sedan_sprite_is_rgba_and_matches_layout_aspect() -> None:
+  sprite = files("openpilot.selfdrive").joinpath("assets", LEAD_SPRITE_ASSET)
+  with as_file(sprite) as sprite_path:
+    data = sprite_path.read_bytes()[:26]
 
-
-def test_sedan_wheels_sit_outside_body_shoulders_and_inside_actor_height() -> None:
-  body_half_width = max(abs(x) for x, _ in SEDAN_BODY_POINTS)
-
-  assert SEDAN_WHEEL_CENTER_X + SEDAN_WHEEL_RADIUS_X > body_half_width
-  assert -1.0 < SEDAN_WHEEL_CENTER_Y - SEDAN_WHEEL_RADIUS_Y
-  assert SEDAN_WHEEL_CENTER_Y + SEDAN_WHEEL_RADIUS_Y < 0.0
+  assert data[:8] == b"\x89PNG\r\n\x1a\n"
+  width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
+  assert (width, height, bit_depth, color_type) == (512, 568, 8, 6)
+  assert height / width == pytest.approx(LEAD_HEIGHT_TO_WIDTH)
 
 
 def test_traffic_projection_retains_points_outside_model_clip_region() -> None:

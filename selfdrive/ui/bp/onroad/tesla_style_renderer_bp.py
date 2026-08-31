@@ -20,8 +20,10 @@ from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 
 MAX_LEAD_DISTANCE_M = 140.0
 NOMINAL_LANE_WIDTH_M = 3.7
-LEAD_LANE_WIDTH_FRACTION = 0.62
-LEAD_HEIGHT_TO_WIDTH = 0.74
+LEAD_LANE_WIDTH_FRACTION = 0.55
+LEAD_HEIGHT_TO_WIDTH = 568.0 / 512.0
+LEAD_MAX_WIDTH_PX = 150.0
+LEAD_SPRITE_ASSET = "images/tesla_lead_sedan.png"
 LEAD_FULL_SCALE_DISTANCE_M = 8.0
 LEAD_FAR_SCALE_DISTANCE_M = 55.0
 LEAD_FAR_DISTANCE_SCALE = 0.70
@@ -31,25 +33,6 @@ ROAD_NEUTRAL_FAR_Y_FRACTION = 0.60
 ROAD_NEUTRAL_HORIZON_Y_FRACTION = 0.44
 ROAD_TRANSITION_SECONDS = 0.42
 ROAD_TRACKING_SECONDS = 0.24
-
-SEDAN_BODY_POINTS = (
-  (-0.17, -1.00), (0.17, -1.00), (0.25, -0.96), (0.32, -0.84),
-  (0.36, -0.67), (0.40, -0.48), (0.45, -0.24), (0.46, -0.10),
-  (0.35, 0.00), (-0.35, 0.00), (-0.46, -0.10), (-0.45, -0.24),
-  (-0.40, -0.48), (-0.36, -0.67), (-0.32, -0.84), (-0.25, -0.96),
-)
-SEDAN_HOOD_POINTS = ((-0.14, -0.96), (0.14, -0.96), (0.23, -0.82), (-0.23, -0.82))
-SEDAN_WINDSHIELD_POINTS = ((-0.23, -0.80), (0.23, -0.80), (0.28, -0.64), (-0.28, -0.64))
-SEDAN_ROOF_POINTS = ((-0.27, -0.62), (0.27, -0.62), (0.30, -0.45), (-0.30, -0.45))
-SEDAN_REAR_GLASS_POINTS = ((-0.30, -0.43), (0.30, -0.43), (0.33, -0.29), (-0.33, -0.29))
-SEDAN_TRUNK_POINTS = ((-0.35, -0.27), (0.35, -0.27), (0.40, -0.13), (-0.40, -0.13))
-SEDAN_REAR_FASCIA_POINTS = ((-0.41, -0.12), (0.41, -0.12), (0.37, -0.02), (-0.37, -0.02))
-SEDAN_LEFT_FRONT_FACET = ((-0.25, -0.96), (-0.32, -0.84), (-0.40, -0.48), (-0.30, -0.45))
-SEDAN_LEFT_REAR_FACET = ((-0.30, -0.43), (-0.40, -0.48), (-0.46, -0.10), (-0.37, -0.02))
-SEDAN_WHEEL_CENTER_X = 0.455
-SEDAN_WHEEL_CENTER_Y = -0.23
-SEDAN_WHEEL_RADIUS_X = 0.065
-SEDAN_WHEEL_RADIUS_Y = 0.12
 
 LeadValues = tuple[float, float, float]
 
@@ -285,7 +268,7 @@ def lead_actor_width(lane_width_px: float, rect_height: float, d_rel: float) -> 
   ))
   min_width = 30.0 * display_scale
   perspective_width = float(np.clip(lane_width_px * LEAD_LANE_WIDTH_FRACTION,
-                                    min_width, 180.0 * display_scale))
+                                    min_width, LEAD_MAX_WIDTH_PX * display_scale))
   return max(min_width, perspective_width * distance_scale)
 
 
@@ -316,6 +299,7 @@ class TeslaStyleRendererBP:
     self._enabled = False
     self._lead_fade = LeadFadeState()
     self._road_geometry = RoadGeometryState()
+    self._lead_sedan_texture: rl.Texture | None = None
 
   def set_enabled(self, enabled: bool) -> None:
     if enabled != self._enabled:
@@ -434,91 +418,30 @@ class TeslaStyleRendererBP:
           rl.draw_line_ex(rl.Vector2(float(start[0]), float(start[1])),
                           rl.Vector2(float(end[0]), float(end[1])), 3.0, shoulder)
 
-  @staticmethod
-  def _scaled_points(cx: float, base_y: float, width: float, height: float,
-                     points: tuple[tuple[float, float], ...]) -> list[rl.Vector2]:
-    return [rl.Vector2(cx + x * width, base_y + y * height) for x, y in points]
-
-  @staticmethod
-  def _draw_poly(points: list[rl.Vector2], color: rl.Color) -> None:
-    if len(points) >= 3:
-      # Raylib's default 2D batch culls the screen-clockwise winding produced
-      # by the normalized top-to-bottom actor geometry.
-      points = points[::-1]
-      rl.draw_triangle_fan(points, len(points), color)
-
   def _draw_lead_vehicle(self, cx: float, base_y: float, width: float,
                          opacity: float = 1.0) -> None:
-    """Draw a low Tesla-like sedan from a slightly elevated rear view."""
+    """Draw the reference-derived rear/overhead sedan."""
     height = width * LEAD_HEIGHT_TO_WIDTH
 
     def fade(color: rl.Color) -> rl.Color:
       return color_with_opacity(color, opacity)
 
-    body = fade(blend_color(rl.Color(162, 170, 175, 255), rl.Color(150, 158, 163, 255), self._dark_fraction))
-    highlight = fade(blend_color(rl.Color(200, 205, 208, 255), rl.Color(190, 197, 201, 255), self._dark_fraction))
-    shade = fade(blend_color(rl.Color(100, 110, 116, 255), rl.Color(75, 85, 92, 255), self._dark_fraction))
-    glass_color = blend_color(rl.Color(45, 56, 63, 240), rl.Color(28, 39, 47, 245), self._dark_fraction)
-    glass = fade(glass_color)
-    outline = fade(blend_color(rl.Color(82, 92, 98, 245), rl.Color(205, 212, 216, 245), self._dark_fraction))
+    shadow = fade(blend_color(rl.Color(0, 0, 0, 54), rl.Color(0, 0, 0, 72), self._dark_fraction))
 
     rl.draw_ellipse(int(cx), int(base_y + height * 0.02),
                     max(1, int(width * 0.44)), max(1, int(height * 0.07)),
-                    fade(blend_color(rl.Color(0, 0, 0, 54), rl.Color(0, 0, 0, 72), self._dark_fraction)))
+                    shadow)
 
-    body_shape = self._scaled_points(cx, base_y, width, height, SEDAN_BODY_POINTS)
-    self._draw_poly(body_shape, body)
+    if self._lead_sedan_texture is None:
+      self._lead_sedan_texture = gui_app.texture(LEAD_SPRITE_ASSET)
 
-    # Short, separate facets and body-colored roof prevent the long stacked
-    # glass slabs that made the previous actor read like a van.
-    for left_points in (SEDAN_LEFT_FRONT_FACET, SEDAN_LEFT_REAR_FACET):
-      self._draw_poly(self._scaled_points(cx, base_y, width, height, left_points), shade)
-      right_points = tuple((-x, y) for x, y in left_points[::-1])
-      self._draw_poly(self._scaled_points(cx, base_y, width, height, right_points), shade)
+    texture = self._lead_sedan_texture
+    source = rl.Rectangle(0, 0, texture.width, texture.height)
+    destination = rl.Rectangle(cx, base_y, width, height)
+    origin = rl.Vector2(width / 2.0, height)
 
-    self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_HOOD_POINTS), highlight)
-    self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_WINDSHIELD_POINTS), glass)
-    self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_ROOF_POINTS), highlight)
-    self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_REAR_GLASS_POINTS),
-                    fade(rl.Color(glass_color.r, glass_color.g, glass_color.b, 220)))
-    self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_TRUNK_POINTS), highlight)
-    self._draw_poly(self._scaled_points(cx, base_y, width, height, SEDAN_REAR_FASCIA_POINTS), shade)
-
-    # Draw the sidewalls after the body so the wheels remain legible even when
-    # the actor is distant. Their centers sit just outside the sedan silhouette.
-    wheel_color = fade(rl.Color(22, 25, 28, 245))
-    wheel_hub = fade(rl.Color(98, 106, 111, 230))
-    for side in (-1.0, 1.0):
-      wheel_x = cx + side * width * SEDAN_WHEEL_CENTER_X
-      wheel_y = base_y + height * SEDAN_WHEEL_CENTER_Y
-      rl.draw_ellipse(
-        int(wheel_x), int(wheel_y),
-        max(2, int(width * SEDAN_WHEEL_RADIUS_X)),
-        max(2, int(height * SEDAN_WHEEL_RADIUS_Y)),
-        wheel_color,
-      )
-      if width >= 55.0:
-        rl.draw_ellipse(
-          int(wheel_x), int(wheel_y),
-          max(1, int(width * SEDAN_WHEEL_RADIUS_X * 0.34)),
-          max(1, int(height * SEDAN_WHEEL_RADIUS_Y * 0.44)),
-          wheel_hub,
-        )
-
-    if width >= 40.0:
-      lamp = fade(rl.Color(192, 55, 54, 225))
-      for side in (-1.0, 1.0):
-        lamp_rect = rl.Rectangle(
-          cx + side * width * 0.33 - width * 0.0575,
-          base_y - height * 0.115,
-          width * 0.115,
-          max(2.0, height * 0.04),
-        )
-        rl.draw_rectangle_rounded(lamp_rect, 0.4, 4, lamp)
-
-    line_width = max(1.0, width * 0.025)
-    for start, end in zip(body_shape, [*body_shape[1:], body_shape[0]], strict=True):
-      rl.draw_line_ex(start, end, line_width, outline)
+    rl.draw_texture_pro(texture, source, destination, origin, 0.0,
+                        fade(rl.Color(255, 255, 255, 255)))
 
   def _projected_lane_width(self, rect: rl.Rectangle, model_renderer,
                             d_rel: float, y_rel: float) -> float | None:
