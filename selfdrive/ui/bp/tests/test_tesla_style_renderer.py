@@ -7,8 +7,6 @@ import pytest
 import pyray as rl
 
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
-  LEAD_FAR_HEIGHT_TO_WIDTH,
-  LEAD_FAR_SPRITE_ASSET,
   LEAD_HEIGHT_TO_WIDTH,
   LEAD_MAX_WIDTH_PX,
   LEAD_SHADOW_CENTER_Y_FRACTION,
@@ -24,10 +22,10 @@ from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
   extend_road_edges_to_bottom,
   lead_actor_base_y,
   lead_actor_height,
-  lead_actor_perspective_mix,
   lead_actor_width,
   normalized_road_polygon,
   project_car_space_unclipped,
+  road_geometry_reliable,
   valid_primary_lead_values,
 )
 from openpilot.selfdrive.ui.bp.onroad.model_renderer_bp import lead_values_indicate_handoff
@@ -88,6 +86,24 @@ def test_unreliable_startup_has_no_synthetic_road_polygon() -> None:
 
   assert points is None
   assert opacity == 0.0
+
+
+def test_background_road_requires_live_finite_xyz_model_geometry() -> None:
+  path = np.asarray([[0.0, 0.0, 0.0], [45.0, 1.0, 0.0]])
+  class SubMaster:
+    def __init__(self):
+      self.valid = {"carState": True, "modelV2": True}
+      self.alive = {"carState": True, "modelV2": True}
+
+    def __getitem__(self, key):
+      return SimpleNamespace(vEgo=4.0)
+
+  submaster = SubMaster()
+  assert road_geometry_reliable(path, submaster)
+  submaster.valid["modelV2"] = False
+  assert not road_geometry_reliable(path, submaster)
+  submaster.valid["modelV2"] = True
+  assert not road_geometry_reliable(np.asarray([[0.0, 0.0, 0.0], [45.0, np.nan, 0.0]]), submaster)
 
 
 def test_road_dropout_holds_real_geometry_then_fades_to_ground() -> None:
@@ -237,36 +253,26 @@ def test_close_lead_base_is_clamped_inside_viewport() -> None:
 
 def test_sedan_proportions_keep_far_actor_at_road_horizon() -> None:
   far_width = lead_actor_width(1000.0, 540.0, 20.0)
-  far_top = 335.0 - lead_actor_height(far_width, 20.0)
+  far_top = 335.0 - lead_actor_height(far_width)
 
-  assert LEAD_HEIGHT_TO_WIDTH == pytest.approx(568.0 / 512.0)
+  assert LEAD_HEIGHT_TO_WIDTH == pytest.approx(456.0 / 512.0)
   assert far_top >= 258.0
 
 
-@pytest.mark.parametrize(("asset", "expected_size", "expected_aspect"), [
-  (LEAD_SPRITE_ASSET, (512, 568), LEAD_HEIGHT_TO_WIDTH),
-  (LEAD_FAR_SPRITE_ASSET, (512, 456), LEAD_FAR_HEIGHT_TO_WIDTH),
-])
-def test_sedan_sprites_are_rgba_and_match_layout_aspect(asset, expected_size,
-                                                         expected_aspect) -> None:
-  sprite = files("openpilot.selfdrive").joinpath("assets", asset)
+def test_road_level_sedan_sprite_is_rgba_and_matches_layout_aspect() -> None:
+  sprite = files("openpilot.selfdrive").joinpath("assets", LEAD_SPRITE_ASSET)
   with as_file(sprite) as sprite_path:
     data = sprite_path.read_bytes()[:26]
 
   assert data[:8] == b"\x89PNG\r\n\x1a\n"
   width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
-  assert (width, height) == expected_size
+  assert (width, height) == (512, 456)
   assert (bit_depth, color_type) == (8, 6)
-  assert height / width == pytest.approx(expected_aspect)
+  assert height / width == pytest.approx(LEAD_HEIGHT_TO_WIDTH)
 
 
-def test_sedan_perspective_changes_smoothly_with_distance() -> None:
-  assert lead_actor_perspective_mix(10.0) == 0.0
-  assert 0.0 < lead_actor_perspective_mix(30.0) < 1.0
-  assert lead_actor_perspective_mix(60.0) == 1.0
-  assert lead_actor_height(100.0, 10.0) == pytest.approx(100.0 * LEAD_HEIGHT_TO_WIDTH)
-  assert lead_actor_height(100.0, 60.0) == pytest.approx(100.0 * LEAD_FAR_HEIGHT_TO_WIDTH)
-  assert lead_actor_height(100.0, 60.0) < lead_actor_height(100.0, 10.0)
+def test_road_level_sedan_proportions_are_distance_independent() -> None:
+  assert lead_actor_height(100.0) == pytest.approx(100.0 * LEAD_HEIGHT_TO_WIDTH)
 
 
 def test_traffic_projection_retains_points_outside_model_clip_region() -> None:

@@ -108,7 +108,6 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
   def show_event(self):
     super().show_event()
     self._hud_renderer.reset_tesla_lead_fade()
-    self.model_renderer.reset_tesla_path_presentation()
 
   def _render(self, rect):
     """Override render to add blindspot, gauges, confidence ball on left."""

@@ -128,10 +128,6 @@ class MiciAugmentedRoadViewBP(MiciCameraViewBP, AugmentedRoadView, BlindspotRend
     self._lat_debug = LateralDebugMici(back_callback=_dismiss)
     gui_app.push_widget(self._lat_debug)
 
-  def show_event(self):
-    super().show_event()
-    self._model_renderer.reset_tesla_path_presentation()
-
   def _handle_mouse_release(self, mouse_pos):
     # BluePilot: suppress click-to-home when a swipe-down was detected by the detector
     if not self._swipe_detector.interacting():
