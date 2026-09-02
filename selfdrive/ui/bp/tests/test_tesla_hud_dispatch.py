@@ -39,6 +39,7 @@ from openpilot.selfdrive.ui.bp.onroad.speed_limit_renderer_bp import (
   SpeedLimitRendererBP,
   tesla_speed_limit_sign_rect,
 )
+from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import LeadFadeState, color_with_opacity
 from openpilot.selfdrive.ui.bp.lib.tesla_status import tesla_mads_active
 from openpilot.selfdrive.ui.onroad.hud_renderer import UI_CONFIG
 from openpilot.selfdrive.ui.sunnypilot.onroad.speed_limit import SpeedLimitRenderer
@@ -221,8 +222,8 @@ def test_static_confidence_ball_reuses_bluepilot_color_scheme() -> None:
 
 
 def test_tesla_lead_speed_uses_fused_primary_lead() -> None:
-  assert tesla_lead_speed_state(FakeSubMaster(v_lead=20.0, v_ego=18.0)) == (20.0, 18.0)
-  assert tesla_lead_speed_state(FakeSubMaster(v_lead=21.0, v_lead_k=20.0)) == (20.0, 18.0)
+  assert tesla_lead_speed_state(FakeSubMaster(v_lead=20.0, v_ego=18.0)) == (30.0, 20.0, 18.0)
+  assert tesla_lead_speed_state(FakeSubMaster(v_lead=21.0, v_lead_k=20.0)) == (30.0, 20.0, 18.0)
   assert tesla_lead_speed_state(FakeSubMaster(lead_status=False)) is None
   assert tesla_lead_speed_state(FakeSubMaster(radar_alive=False)) is None
   assert tesla_lead_speed_state(FakeSubMaster(car_valid=False)) is None
@@ -230,7 +231,25 @@ def test_tesla_lead_speed_uses_fused_primary_lead() -> None:
 
 
 def test_tesla_lead_speed_clamps_negative_speed_to_zero() -> None:
-  assert tesla_lead_speed_state(FakeSubMaster(v_lead=-1.0, v_ego=2.0)) == (0.0, 2.0)
+  assert tesla_lead_speed_state(FakeSubMaster(v_lead=-1.0, v_ego=2.0)) == (30.0, 0.0, 2.0)
+
+
+def test_tesla_lead_hud_fades_old_identity_out_before_new_value() -> None:
+  state = LeadFadeState()
+  old_lead = (30.0, 20.0, 18.0)
+  new_lead = (48.0, 25.0, 18.0)
+
+  assert state.update(old_lead, 1, 0.5) == (old_lead, 0.5)
+  assert state.update(old_lead, 1, 0.5) == (old_lead, 1.0)
+  assert state.update(new_lead, 2, 0.5) == (old_lead, 0.5)
+  assert state.update(new_lead, 2, 0.5) == (old_lead, 0.0)
+  assert state.update(new_lead, 2, 0.5) == (new_lead, 0.5)
+
+
+def test_tesla_lead_hud_fade_scales_text_and_outline_alpha() -> None:
+  color = color_with_opacity(rl.Color(10, 20, 30, 200), 0.25)
+
+  assert (color.r, color.g, color.b, color.a) == (10, 20, 30, 50)
 
 
 def test_tesla_lead_speed_color_rules() -> None:

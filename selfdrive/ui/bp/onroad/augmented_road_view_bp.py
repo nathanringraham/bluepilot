@@ -105,6 +105,11 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
   def update_fade_out_bottom_overlay(self, _content_rect):
     """BluePilot: Skip MICI fade overlay on TICI — causes unwanted black gradient at bottom."""
 
+  def show_event(self):
+    super().show_event()
+    self._hud_renderer.reset_tesla_lead_fade()
+    self.model_renderer.reset_tesla_path_presentation()
+
   def _render(self, rect):
     """Override render to add blindspot, gauges, confidence ball on left."""
     bp_ui_log.tick()
@@ -186,6 +191,10 @@ class AugmentedRoadViewBP(CameraViewBP, AugmentedRoadView, BlindspotRendererMixi
 
     # Render model (uses full content rect for camera-space overlays)
     self.model_renderer.render(self._content_rect)
+
+    self._hud_renderer.set_tesla_lead_generation(
+      self.model_renderer.primary_lead_generation() if self._tesla_style_enabled else None,
+    )
 
     if self._tesla_style_enabled:
       self._tesla_style_renderer.render_traffic(self._content_rect, self.model_renderer)

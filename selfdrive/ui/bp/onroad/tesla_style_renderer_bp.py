@@ -8,17 +8,16 @@ and safety blind-spot edges above it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 
 import numpy as np
 import pyray as rl
 
-from openpilot.selfdrive.ui.bp.lib.tesla_palette import (
-  blend_color,
-  palette_for_dark_fraction,
-  TESLA_CLOSING_START_MPS,
-  tesla_closing_color,
+from openpilot.selfdrive.ui.bp.lib.tesla_palette import blend_color, palette_for_dark_fraction
+from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
+  TESLA_PATH_STANDSTILL_FREEZE_MPS,
+  tesla_geometry_reliable,
 )
-from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import tesla_geometry_reliable
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
@@ -27,19 +26,23 @@ MAX_LEAD_DISTANCE_M = 140.0
 NOMINAL_LANE_WIDTH_M = 3.7
 LEAD_LANE_WIDTH_FRACTION = 0.55
 LEAD_HEIGHT_TO_WIDTH = 568.0 / 512.0
+LEAD_FAR_HEIGHT_TO_WIDTH = 456.0 / 512.0
 LEAD_MAX_WIDTH_PX = 150.0
 LEAD_SPRITE_ASSET = "images/tesla_lead_sedan.png"
+LEAD_FAR_SPRITE_ASSET = "images/tesla_lead_sedan_far.png"
 LEAD_FULL_SCALE_DISTANCE_M = 8.0
 LEAD_FAR_SCALE_DISTANCE_M = 55.0
 LEAD_FAR_DISTANCE_SCALE = 0.70
+LEAD_VIEW_NEAR_DISTANCE_M = 28.0
+LEAD_VIEW_FAR_DISTANCE_M = 32.0
 LEAD_SHADOW_RADIUS_X_FRACTION = 0.36
 LEAD_SHADOW_RADIUS_Y_FRACTION = 0.018
 LEAD_SHADOW_CENTER_Y_FRACTION = -0.020
 LEAD_FADE_SECONDS = 0.25
 ROAD_CHAIN_POINT_COUNT = 9
-ROAD_NEUTRAL_FAR_Y_FRACTION = 0.60
-ROAD_NEUTRAL_HORIZON_Y_FRACTION = 0.44
-ROAD_TRANSITION_SECONDS = 0.42
+ROAD_DEFAULT_HORIZON_Y_FRACTION = 0.44
+ROAD_DROPOUT_HOLD_SECONDS = 0.15
+ROAD_DROPOUT_FADE_SECONDS = 0.25
 ROAD_TRACKING_SECONDS = 0.24
 
 LeadValues = tuple[float, float, float]
@@ -118,33 +121,63 @@ class LeadFadeState:
 
 @dataclass
 class RoadGeometryState:
-  """Ease between model geometry and a calm, non-predictive near-field apron."""
+  """Track real model road geometry and age it out without inventing a road."""
   points: np.ndarray | None = None
-  neutral_amount: float = 1.0
-  neutral: bool = True
+  opacity: float = 0.0
+  _last_update: float | None = None
+  _dropout_since: float | None = None
+  _dropout_opacity: float = 0.0
 
   def reset(self) -> None:
     self.points = None
-    self.neutral_amount = 1.0
-    self.neutral = True
+    self.opacity = 0.0
+    self._last_update = None
+    self._dropout_since = None
+    self._dropout_opacity = 0.0
 
-  def update(self, target: np.ndarray, neutral: bool, fps: float) -> np.ndarray:
-    target = np.asarray(target, dtype=np.float32)
-    if self.points is None or self.points.shape != target.shape:
-      self.points = target.copy()
-      self.neutral_amount = 1.0 if neutral else 0.0
-      self.neutral = neutral
-      return self.points.copy()
+  def update(self, target: np.ndarray | None, reliable: bool, freeze: bool = False,
+             now: float | None = None) -> tuple[np.ndarray | None, float]:
+    now = time.monotonic() if now is None else float(now)
+    dt = 0.0 if self._last_update is None else max(0.0, min(now - self._last_update, 0.25))
+    self._last_update = now
+    candidate = None if target is None else np.asarray(target, dtype=np.float32)
+    candidate_valid = (
+      candidate is not None and candidate.ndim == 2 and candidate.shape[1] == 2 and
+      len(candidate) >= 4 and np.all(np.isfinite(candidate))
+    )
 
-    changed_mode = neutral != self.neutral
-    tau = ROAD_TRANSITION_SECONDS if changed_mode or neutral else ROAD_TRACKING_SECONDS
-    dt = 1.0 / max(1.0, float(fps))
-    alpha = 1.0 - float(np.exp(-dt / tau))
-    self.points += (target - self.points) * alpha
-    neutral_target = 1.0 if neutral else 0.0
-    self.neutral_amount += (neutral_target - self.neutral_amount) * alpha
-    self.neutral = neutral
-    return self.points.copy()
+    if freeze and self.points is not None:
+      # At standstill the physical road is not moving. Keep the last real
+      # geometry instead of chasing the model's rapidly changing hypotheses.
+      self._dropout_since = None
+      return self.points.copy(), self.opacity
+
+    if reliable and candidate_valid:
+      self._dropout_since = None
+      if self.points is None or self.points.shape != candidate.shape:
+        self.points = candidate.copy()
+      elif dt > 0.0:
+        alpha = 1.0 - float(np.exp(-dt / ROAD_TRACKING_SECONDS))
+        self.points += (candidate - self.points) * alpha
+      self.opacity = 1.0
+      return self.points.copy(), self.opacity
+
+    if self.points is None:
+      self.opacity = 0.0
+      return None, 0.0
+    if self._dropout_since is None:
+      self._dropout_since = now
+      self._dropout_opacity = self.opacity
+    dropout_age = now - self._dropout_since
+    if dropout_age > ROAD_DROPOUT_HOLD_SECONDS:
+      fade_age = dropout_age - ROAD_DROPOUT_HOLD_SECONDS
+      self.opacity = self._dropout_opacity * float(np.clip(
+        1.0 - fade_age / ROAD_DROPOUT_FADE_SECONDS, 0.0, 1.0,
+      ))
+    if self.opacity <= 0.0:
+      self.points = None
+      return None, 0.0
+    return self.points.copy(), self.opacity
 
 
 def color_with_opacity(color: rl.Color, opacity: float) -> rl.Color:
@@ -235,25 +268,6 @@ def normalized_road_polygon(left: list[tuple[float, float]], right: list[tuple[f
   return np.concatenate((left_points, right_points[::-1])).astype(np.float32)
 
 
-def neutral_road_polygon(rect: rl.Rectangle) -> np.ndarray:
-  """Short road apron used when the model has no stable, useful road geometry.
-
-  It deliberately ends below the horizon and carries no invented lane lines.
-  The renderer fades its far edge into the ground, leaving only a subtle pair
-  of near-field shoulder guides through parking-lot turns and standstill noise.
-  """
-  center_x = float(rect.x + rect.width * 0.5)
-  bottom_y = float(rect.y + rect.height + 1.0)
-  far_y = float(rect.y + rect.height * ROAD_NEUTRAL_FAR_Y_FRACTION)
-  progress = np.linspace(0.0, 1.0, ROAD_CHAIN_POINT_COUNT, dtype=np.float32)
-  perspective = np.power(progress, 0.72)
-  y = bottom_y + (far_y - bottom_y) * perspective
-  half_width = rect.width * (0.46 + (0.065 - 0.46) * perspective)
-  left = np.column_stack((center_x - half_width, y))
-  right = np.column_stack((center_x + half_width, y))
-  return np.concatenate((left, right[::-1])).astype(np.float32)
-
-
 def valid_primary_lead_values(lead) -> tuple[float, float, float] | None:
   """Validate the fused primary lead without inventing a raw-radar fallback."""
   if lead is None or not bool(getattr(lead, "status", False)):
@@ -280,9 +294,27 @@ def lead_actor_width(lane_width_px: float, rect_height: float, d_rel: float) -> 
   return max(min_width, perspective_width * distance_scale)
 
 
-def lead_actor_base_y(projected_y: float, width: float, rect: rl.Rectangle) -> float:
+def lead_actor_perspective_mix(d_rel: float) -> float:
+  """Smoothly crossfade from overhead-near to road-level-far sedan artwork."""
+  amount = float(np.clip(
+    (float(d_rel) - LEAD_VIEW_NEAR_DISTANCE_M) /
+    (LEAD_VIEW_FAR_DISTANCE_M - LEAD_VIEW_NEAR_DISTANCE_M),
+    0.0,
+    1.0,
+  ))
+  return amount * amount * (3.0 - 2.0 * amount)
+
+
+def lead_actor_height(width: float, d_rel: float) -> float:
+  perspective_mix = lead_actor_perspective_mix(d_rel)
+  aspect = LEAD_HEIGHT_TO_WIDTH + (LEAD_FAR_HEIGHT_TO_WIDTH - LEAD_HEIGHT_TO_WIDTH) * perspective_mix
+  return float(width) * aspect
+
+
+def lead_actor_base_y(projected_y: float, width: float, rect: rl.Rectangle,
+                      d_rel: float = 0.0) -> float:
   """Keep a close lead fully visible when its ground point projects offscreen."""
-  height = width * LEAD_HEIGHT_TO_WIDTH
+  height = lead_actor_height(width, d_rel)
   display_scale = max(0.45, float(rect.height) / 1080.0)
   bottom_margin = max(24.0 * display_scale, height * 0.14)
   return min(float(projected_y), float(rect.y + rect.height - bottom_margin))
@@ -308,6 +340,7 @@ class TeslaStyleRendererBP:
     self._lead_fade = LeadFadeState()
     self._road_geometry = RoadGeometryState()
     self._lead_sedan_texture: rl.Texture | None = None
+    self._lead_sedan_far_texture: rl.Texture | None = None
 
   def set_enabled(self, enabled: bool) -> None:
     if enabled != self._enabled:
@@ -368,23 +401,32 @@ class TeslaStyleRendererBP:
         return normalized_road_polygon(left, right, rect)
     return None
 
-  def _road_polygon(self, rect: rl.Rectangle, model_renderer) -> np.ndarray:
+  def _road_polygon(self, rect: rl.Rectangle, model_renderer) -> tuple[np.ndarray | None, float]:
     projected = self._projected_road_polygon(rect, model_renderer)
-    use_neutral = not tesla_geometry_reliable(model_renderer._path.raw_points, ui_state.sm) or projected is None
-    target = neutral_road_polygon(rect) if use_neutral else projected
-    return self._road_geometry.update(target, use_neutral, gui_app.target_fps)
+    reliable = tesla_geometry_reliable(model_renderer._path.raw_points, ui_state.sm) and projected is not None
+    sm = ui_state.sm
+    car_available = (
+      sm.valid.get("carState", False) and
+      (not hasattr(sm, "alive") or sm.alive.get("carState", False))
+    )
+    freeze = car_available and float(sm["carState"].vEgo) < TESLA_PATH_STANDSTILL_FREEZE_MPS
+    return self._road_geometry.update(projected, reliable, freeze=freeze)
 
   def render_background(self, rect: rl.Rectangle, model_renderer) -> None:
     palette = palette_for_dark_fraction(self._dark_fraction)
     model_renderer.prepare_projection(rect)
-    road = self._road_polygon(rect, model_renderer)
-    far_points = road[np.argsort(road[:, 1])[:2]] if len(road) >= 2 else np.empty((0, 2))
+    road, road_opacity = self._road_polygon(rect, model_renderer)
+    far_points = (
+      road[np.argsort(road[:, 1])[:2]]
+      if road is not None and len(road) >= 2
+      else np.empty((0, 2))
+    )
+    default_horizon_y = rect.y + rect.height * ROAD_DEFAULT_HORIZON_Y_FRACTION
     if len(far_points):
-      horizon_y = float(np.mean(far_points[:, 1]))
+      model_horizon_y = float(np.mean(far_points[:, 1]))
+      horizon_y = default_horizon_y + (model_horizon_y - default_horizon_y) * road_opacity
     else:
-      horizon_y = rect.y + rect.height * 0.34
-    neutral_horizon_y = rect.y + rect.height * ROAD_NEUTRAL_HORIZON_Y_FRACTION
-    horizon_y += (neutral_horizon_y - horizon_y) * self._road_geometry.neutral_amount
+      horizon_y = default_horizon_y
     horizon_y = float(np.clip(horizon_y, rect.y + rect.height * 0.20, rect.y + rect.height * 0.55))
 
     sky_h = max(1, int(horizon_y - rect.y))
@@ -393,8 +435,9 @@ class TeslaStyleRendererBP:
                                  palette.sky_top, palette.sky_horizon)
     rl.draw_rectangle_gradient_v(int(rect.x), int(horizon_y), int(rect.width), ground_h,
                                  palette.ground_horizon, palette.ground_near)
-    neutral_amount = float(np.clip(self._road_geometry.neutral_amount, 0.0, 1.0))
-    far_alpha = round(palette.road_surface.a * (1.0 - 0.92 * neutral_amount))
+    if road is None or road_opacity <= 0.0:
+      return
+
     draw_polygon(
       rect,
       road,
@@ -402,8 +445,8 @@ class TeslaStyleRendererBP:
         start=(0.0, 1.0),
         end=(0.0, 0.0),
         colors=[
-          rl.Color(palette.road_surface.r, palette.road_surface.g, palette.road_surface.b, far_alpha),
-          palette.road_surface,
+          color_with_opacity(palette.road_surface, road_opacity * 0.78),
+          color_with_opacity(palette.road_surface, road_opacity),
         ],
         stops=[0.0, 1.0],
       ),
@@ -414,30 +457,20 @@ class TeslaStyleRendererBP:
       left = road[:half]
       right = road[half:][::-1]
       for edge in (left, right):
-        for index, (start, end) in enumerate(zip(edge[:-1], edge[1:], strict=True)):
-          depth = index / max(1, len(edge) - 2)
-          alpha_scale = 1.0 - neutral_amount * 0.90 * depth
-          shoulder = rl.Color(
-            palette.road_shoulder.r,
-            palette.road_shoulder.g,
-            palette.road_shoulder.b,
-            round(palette.road_shoulder.a * alpha_scale),
-          )
+        for start, end in zip(edge[:-1], edge[1:], strict=True):
+          shoulder = color_with_opacity(palette.road_shoulder, road_opacity)
           rl.draw_line_ex(rl.Vector2(float(start[0]), float(start[1])),
                           rl.Vector2(float(end[0]), float(end[1])), 3.0, shoulder)
 
   def _draw_lead_vehicle(self, cx: float, base_y: float, width: float,
-                         v_rel: float, opacity: float = 1.0) -> None:
-    """Draw the reference-derived rear/overhead sedan with a risk-aware halo."""
-    height = width * LEAD_HEIGHT_TO_WIDTH
+                         d_rel: float, opacity: float = 1.0) -> None:
+    """Draw distance-appropriate near/far sedan perspectives."""
+    height = lead_actor_height(width, d_rel)
 
     def fade(color: rl.Color) -> rl.Color:
       return color_with_opacity(color, opacity)
 
-    neutral_outline = blend_color(rl.Color(82, 92, 98, 245), rl.Color(205, 212, 216, 245), self._dark_fraction)
-    outline = fade(tesla_closing_color(v_rel, neutral_outline))
-    neutral_shadow = blend_color(rl.Color(0, 0, 0, 38), rl.Color(0, 0, 0, 48), self._dark_fraction)
-    shadow = fade(tesla_closing_color(v_rel, neutral_shadow))
+    shadow = fade(blend_color(rl.Color(0, 0, 0, 38), rl.Color(0, 0, 0, 48), self._dark_fraction))
 
     # The PNG's tire contact pixels end about 2% above its destination bottom.
     # Keep this subtle ellipse tucked behind that contact patch so the actor
@@ -449,27 +482,23 @@ class TeslaStyleRendererBP:
 
     if self._lead_sedan_texture is None:
       self._lead_sedan_texture = gui_app.texture(LEAD_SPRITE_ASSET)
+    if self._lead_sedan_far_texture is None:
+      self._lead_sedan_far_texture = gui_app.texture(LEAD_FAR_SPRITE_ASSET)
 
-    texture = self._lead_sedan_texture
-    source = rl.Rectangle(0, 0, texture.width, texture.height)
-    destination = rl.Rectangle(cx, base_y, width, height)
-    origin = rl.Vector2(width / 2.0, height)
-
-    # The detailed sprite already has a natural edge. Add an offset silhouette
-    # only once the closing-speed feature enters its amber/red range.
-    closing_risk = np.isfinite(v_rel) and -float(v_rel) > TESLA_CLOSING_START_MPS
-    if closing_risk:
-      outline_px = max(1.0, width * 0.012)
-      for offset_x, offset_y in ((-outline_px, 0.0), (outline_px, 0.0),
-                                 (0.0, -outline_px), (0.0, outline_px)):
-        outlined_destination = rl.Rectangle(
-          destination.x + offset_x, destination.y + offset_y,
-          destination.width, destination.height,
-        )
-        rl.draw_texture_pro(texture, source, outlined_destination, origin, 0.0, outline)
-
-    rl.draw_texture_pro(texture, source, destination, origin, 0.0,
-                        fade(rl.Color(255, 255, 255, 255)))
+    perspective_mix = lead_actor_perspective_mix(d_rel)
+    for texture, texture_opacity in (
+      (self._lead_sedan_texture, 1.0 - perspective_mix),
+      (self._lead_sedan_far_texture, perspective_mix),
+    ):
+      if texture_opacity <= 0.001:
+        continue
+      source = rl.Rectangle(0, 0, texture.width, texture.height)
+      destination = rl.Rectangle(cx, base_y, width, height)
+      origin = rl.Vector2(width / 2.0, height)
+      rl.draw_texture_pro(
+        texture, source, destination, origin, 0.0,
+        color_with_opacity(rl.Color(255, 255, 255, 255), opacity * texture_opacity),
+      )
 
   def _projected_lane_width(self, rect: rl.Rectangle, model_renderer,
                             d_rel: float, y_rel: float) -> float | None:
@@ -501,8 +530,8 @@ class TeslaStyleRendererBP:
     if display_values is None or opacity <= 0.0:
       return
 
-    d_rel, y_rel, v_rel = display_values
-    if not all(np.isfinite(value) for value in (d_rel, y_rel, v_rel)):
+    d_rel, y_rel, _ = display_values
+    if not all(np.isfinite(value) for value in (d_rel, y_rel)):
       return
 
     point = self._project(model_renderer, rect, d_rel, y_rel)
@@ -513,9 +542,9 @@ class TeslaStyleRendererBP:
     if lane_width is None:
       return
     width = lead_actor_width(lane_width, rect.height, d_rel)
-    height = width * LEAD_HEIGHT_TO_WIDTH
+    height = lead_actor_height(width, d_rel)
     if not (rect.x - width <= cx <= rect.x + rect.width + width and
             rect.y - height <= base_y):
       return
-    base_y = lead_actor_base_y(base_y, width, rect)
-    self._draw_lead_vehicle(cx, base_y, width, v_rel, opacity)
+    base_y = lead_actor_base_y(base_y, width, rect, d_rel)
+    self._draw_lead_vehicle(cx, base_y, width, d_rel, opacity)

@@ -21,16 +21,6 @@ TESLA_PATH_BLUE_CYCLE = (
   TESLA_PATH_BLUE_MID,
 )
 
-# Closing-speed risk ramp. Small negative relative speeds are normal ACC
-# corrections, so the actor remains neutral until the ego is closing by more
-# than 0.75 m/s. Moderate closing reaches Tesla-like amber at 3 m/s and strong
-# closing reaches red at 8 m/s.
-TESLA_CLOSING_START_MPS = 0.75
-TESLA_CLOSING_AMBER_MPS = 3.0
-TESLA_CLOSING_RED_MPS = 8.0
-TESLA_CLOSING_AMBER = rl.Color(242, 166, 45, 255)
-TESLA_CLOSING_RED = rl.Color(224, 67, 54, 255)
-
 # ui_state.light_sensor is 100 - wide-camera exposure percentage. Require a
 # sustained low reading before darkening, then a materially brighter reading
 # before returning to Light so tunnels and shadows cannot chatter the palette.
@@ -113,34 +103,6 @@ def blend_color(light: rl.Color, dark: rl.Color, dark_fraction: float) -> rl.Col
     for a, b in zip((light.r, light.g, light.b, light.a),
                     (dark.r, dark.g, dark.b, dark.a), strict=True)
   ])
-
-
-def tesla_closing_color(v_rel: float, neutral: rl.Color) -> rl.Color:
-  """Blend a neutral lead accent toward amber/red as closing speed increases.
-
-  radarState.leadOne.vRel is lead minus ego speed, so increasingly negative
-  values indicate a faster closure. Preserve the caller's alpha so the same
-  function works for both the C3X sedan outline and C4 lead complication.
-  """
-  if not math.isfinite(v_rel):
-    return neutral
-
-  closing_speed = max(0.0, -float(v_rel))
-  amber = rl.Color(TESLA_CLOSING_AMBER.r, TESLA_CLOSING_AMBER.g,
-                   TESLA_CLOSING_AMBER.b, neutral.a)
-  red = rl.Color(TESLA_CLOSING_RED.r, TESLA_CLOSING_RED.g,
-                 TESLA_CLOSING_RED.b, neutral.a)
-  if closing_speed <= TESLA_CLOSING_START_MPS:
-    return neutral
-  if closing_speed < TESLA_CLOSING_AMBER_MPS:
-    amount = ((closing_speed - TESLA_CLOSING_START_MPS) /
-              (TESLA_CLOSING_AMBER_MPS - TESLA_CLOSING_START_MPS))
-    return blend_color(neutral, amber, amount)
-  if closing_speed < TESLA_CLOSING_RED_MPS:
-    amount = ((closing_speed - TESLA_CLOSING_AMBER_MPS) /
-              (TESLA_CLOSING_RED_MPS - TESLA_CLOSING_AMBER_MPS))
-    return blend_color(amber, red, amount)
-  return red
 
 
 def palette_for_dark_fraction(dark_fraction: float) -> TeslaPalette:

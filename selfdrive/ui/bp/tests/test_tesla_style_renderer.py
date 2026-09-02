@@ -7,6 +7,8 @@ import pytest
 import pyray as rl
 
 from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
+  LEAD_FAR_HEIGHT_TO_WIDTH,
+  LEAD_FAR_SPRITE_ASSET,
   LEAD_HEIGHT_TO_WIDTH,
   LEAD_MAX_WIDTH_PX,
   LEAD_SHADOW_CENTER_Y_FRACTION,
@@ -14,14 +16,16 @@ from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
   LEAD_SPRITE_ASSET,
   LeadFadeState,
   ROAD_CHAIN_POINT_COUNT,
-  ROAD_NEUTRAL_FAR_Y_FRACTION,
+  ROAD_DROPOUT_FADE_SECONDS,
+  ROAD_DROPOUT_HOLD_SECONDS,
   RoadGeometryState,
   TeslaStyleRendererBP,
   color_with_opacity,
   extend_road_edges_to_bottom,
   lead_actor_base_y,
+  lead_actor_height,
+  lead_actor_perspective_mix,
   lead_actor_width,
-  neutral_road_polygon,
   normalized_road_polygon,
   project_car_space_unclipped,
   valid_primary_lead_values,
@@ -77,32 +81,66 @@ def test_normalized_road_polygon_has_fixed_paired_chains() -> None:
   assert road_left[0, 1] == road_right[0, 1] == pytest.approx(501.0)
 
 
-def test_neutral_road_is_short_symmetric_apron_below_horizon() -> None:
-  rect = rl.Rectangle(100, 50, 1000, 600)
-  road = neutral_road_polygon(rect)
-  left = road[:ROAD_CHAIN_POINT_COUNT]
-  right = road[ROAD_CHAIN_POINT_COUNT:][::-1]
+def test_unreliable_startup_has_no_synthetic_road_polygon() -> None:
+  state = RoadGeometryState()
 
-  assert road.shape == (ROAD_CHAIN_POINT_COUNT * 2, 2)
-  assert np.allclose(left[:, 0] + right[:, 0], 2.0 * (rect.x + rect.width / 2.0))
-  assert left[-1, 1] == right[-1, 1] == pytest.approx(
-    rect.y + rect.height * ROAD_NEUTRAL_FAR_Y_FRACTION,
+  points, opacity = state.update(None, False, now=0.0)
+
+  assert points is None
+  assert opacity == 0.0
+
+
+def test_road_dropout_holds_real_geometry_then_fades_to_ground() -> None:
+  state = RoadGeometryState()
+  initial = np.zeros((ROAD_CHAIN_POINT_COUNT * 2, 2), dtype=np.float32)
+
+  points, opacity = state.update(initial, True, now=0.0)
+  assert np.array_equal(points, initial)
+  assert opacity == 1.0
+  state.update(None, False, now=0.0)
+
+  held, held_opacity = state.update(None, False, now=ROAD_DROPOUT_HOLD_SECONDS)
+  assert np.array_equal(held, initial)
+  assert held_opacity == 1.0
+
+  fading, fading_opacity = state.update(
+    None, False, now=ROAD_DROPOUT_HOLD_SECONDS + ROAD_DROPOUT_FADE_SECONDS / 2.0,
   )
-  assert left[-1, 1] > rect.y + rect.height * 0.50
+  assert np.array_equal(fading, initial)
+  assert fading_opacity == pytest.approx(0.5)
+
+  gone, gone_opacity = state.update(
+    None, False, now=ROAD_DROPOUT_HOLD_SECONDS + ROAD_DROPOUT_FADE_SECONDS,
+  )
+  assert gone is None
+  assert gone_opacity == 0.0
 
 
-def test_road_geometry_eases_instead_of_snapping_between_targets() -> None:
+def test_road_recovery_tracks_without_morphing_through_fake_geometry() -> None:
   state = RoadGeometryState()
   initial = np.zeros((ROAD_CHAIN_POINT_COUNT * 2, 2), dtype=np.float32)
   target = np.full_like(initial, 100.0)
+  state.update(initial, True, now=0.0)
+  state.update(None, False, now=0.1)
 
-  assert np.array_equal(state.update(initial, False, 20.0), initial)
-  first = state.update(target, True, 20.0)
+  recovered, opacity = state.update(target, True, now=0.2)
 
-  assert np.all(first > initial)
-  assert np.all(first < target)
-  assert 0.0 < state.neutral_amount < 1.0
-  assert np.all(state.update(target, True, 20.0) > first)
+  assert recovered is not None
+  assert np.all(recovered > initial)
+  assert np.all(recovered < target)
+  assert opacity == 1.0
+
+
+def test_standstill_road_freezes_last_real_geometry() -> None:
+  state = RoadGeometryState()
+  initial = np.zeros((ROAD_CHAIN_POINT_COUNT * 2, 2), dtype=np.float32)
+  jitter = np.full_like(initial, 500.0)
+  state.update(initial, True, now=0.0)
+
+  frozen, opacity = state.update(jitter, False, freeze=True, now=3.0)
+
+  assert np.array_equal(frozen, initial)
+  assert opacity == 1.0
 
 
 @pytest.mark.parametrize(("lead", "expected"), [
@@ -199,21 +237,36 @@ def test_close_lead_base_is_clamped_inside_viewport() -> None:
 
 def test_sedan_proportions_keep_far_actor_at_road_horizon() -> None:
   far_width = lead_actor_width(1000.0, 540.0, 20.0)
-  far_top = 335.0 - far_width * LEAD_HEIGHT_TO_WIDTH
+  far_top = 335.0 - lead_actor_height(far_width, 20.0)
 
   assert LEAD_HEIGHT_TO_WIDTH == pytest.approx(568.0 / 512.0)
   assert far_top >= 258.0
 
 
-def test_sedan_sprite_is_rgba_and_matches_layout_aspect() -> None:
-  sprite = files("openpilot.selfdrive").joinpath("assets", LEAD_SPRITE_ASSET)
+@pytest.mark.parametrize(("asset", "expected_size", "expected_aspect"), [
+  (LEAD_SPRITE_ASSET, (512, 568), LEAD_HEIGHT_TO_WIDTH),
+  (LEAD_FAR_SPRITE_ASSET, (512, 456), LEAD_FAR_HEIGHT_TO_WIDTH),
+])
+def test_sedan_sprites_are_rgba_and_match_layout_aspect(asset, expected_size,
+                                                         expected_aspect) -> None:
+  sprite = files("openpilot.selfdrive").joinpath("assets", asset)
   with as_file(sprite) as sprite_path:
     data = sprite_path.read_bytes()[:26]
 
   assert data[:8] == b"\x89PNG\r\n\x1a\n"
   width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
-  assert (width, height, bit_depth, color_type) == (512, 568, 8, 6)
-  assert height / width == pytest.approx(LEAD_HEIGHT_TO_WIDTH)
+  assert (width, height) == expected_size
+  assert (bit_depth, color_type) == (8, 6)
+  assert height / width == pytest.approx(expected_aspect)
+
+
+def test_sedan_perspective_changes_smoothly_with_distance() -> None:
+  assert lead_actor_perspective_mix(10.0) == 0.0
+  assert 0.0 < lead_actor_perspective_mix(30.0) < 1.0
+  assert lead_actor_perspective_mix(60.0) == 1.0
+  assert lead_actor_height(100.0, 10.0) == pytest.approx(100.0 * LEAD_HEIGHT_TO_WIDTH)
+  assert lead_actor_height(100.0, 60.0) == pytest.approx(100.0 * LEAD_FAR_HEIGHT_TO_WIDTH)
+  assert lead_actor_height(100.0, 60.0) < lead_actor_height(100.0, 10.0)
 
 
 def test_traffic_projection_retains_points_outside_model_clip_region() -> None:

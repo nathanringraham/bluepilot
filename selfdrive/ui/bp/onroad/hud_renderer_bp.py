@@ -16,7 +16,13 @@ from openpilot.selfdrive.ui.bp.lib.tesla_status import (
   tesla_mads_lamp_colors,
 )
 from openpilot.selfdrive.ui.bp.onroad.tesla_turn_signal import TeslaBlueTurnSignalController
+from openpilot.selfdrive.ui.bp.onroad.tesla_style_renderer_bp import (
+  LEAD_FADE_SECONDS,
+  LeadFadeState,
+  color_with_opacity,
+)
 from openpilot.selfdrive.ui.ui_state import ui_state
+from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.selfdrive.ui.bp.lib.ui_debug_logger import bp_ui_log
@@ -45,8 +51,6 @@ TESLA_LEAD_FASTER_COLOR = rl.Color(80, 216, 112, 255)
 TESLA_LEAD_SLOW_YELLOW = rl.Color(255, 211, 30, 255)
 TESLA_LEAD_SLOW_RED = rl.Color(235, 62, 52, 255)
 TESLA_LEAD_FULL_RED_DELTA_MPS = 15.0 / 2.2369362920544
-
-
 def tesla_column_text_x(column_center_x: float, text_width: float) -> float:
   """Return a left edge that keeps every Tesla HUD row on one centerline."""
   return column_center_x - text_width / 2
@@ -72,7 +76,7 @@ def tesla_status_row_layout(y: float, confidence_enabled: bool
   return confidence_row, mads_row
 
 
-def tesla_lead_speed_state(sm) -> tuple[float, float] | None:
+def tesla_lead_speed_state(sm) -> tuple[float, float, float] | None:
   """Return fused lead/ego speeds in m/s while a valid primary lead exists."""
   if not (sm.alive.get("radarState", False) and sm.valid.get("radarState", False) and
           sm.alive.get("carState", False) and sm.valid.get("carState", False)):
@@ -90,7 +94,7 @@ def tesla_lead_speed_state(sm) -> tuple[float, float] | None:
   ego_speed = float(sm["carState"].vEgo)
   if not all(math.isfinite(value) for value in (d_rel, lead_speed, ego_speed)) or d_rel <= 0.0:
     return None
-  return max(0.0, lead_speed), max(0.0, ego_speed)
+  return d_rel, max(0.0, lead_speed), max(0.0, ego_speed)
 
 
 def tesla_lead_speed_color(lead_speed: float, ego_speed: float) -> rl.Color:
@@ -137,6 +141,8 @@ class HudRendererBP(HudRendererSP):
     self._tesla_confidence_enabled = False
     self._tesla_confidence_colors = (rl.Color(50, 50, 50, 255), rl.Color(13, 13, 13, 255))
     self._tesla_mads_active = False
+    self._tesla_lead_generation: int | None = None
+    self._tesla_lead_speed_fade = LeadFadeState()
     self._tesla_turn_signals = TeslaBlueTurnSignalController()
     # BluePilot: actual mode from controllerStateBP (None = not published, e.g. non-Ford)
     self._lateral_mode = None
@@ -158,6 +164,13 @@ class HudRendererBP(HudRendererSP):
       self._tesla_confidence_colors = top, bottom
     self._tesla_mads_active = mads_active
 
+  def set_tesla_lead_generation(self, generation: int | None) -> None:
+    self._tesla_lead_generation = generation
+
+  def reset_tesla_lead_fade(self) -> None:
+    self._tesla_lead_generation = None
+    self._tesla_lead_speed_fade.reset()
+
   def _update_state(self) -> None:
     super()._update_state()
 
@@ -168,7 +181,10 @@ class HudRendererBP(HudRendererSP):
       self._show_brake_status = self._bp_params.get_bool("ShowBrakeStatus")
       self._hide_v_ego_ui = self._bp_params.get_bool("HideVEgoUI")
       self._show_lateral_control = self._bp_params.get_bool("BpShowLateralControl")
-      self._tesla_style = theme_pack.tesla_active(self._bp_params)
+      tesla_style = theme_pack.tesla_active(self._bp_params)
+      if tesla_style != self._tesla_style:
+        self.reset_tesla_lead_fade()
+      self._tesla_style = tesla_style
 
     self.speed_limit_renderer.set_tesla_style(self._tesla_style)
 
@@ -255,29 +271,38 @@ class HudRendererBP(HudRendererSP):
       max_size, max_spacing, max_color,
     )
 
-    lead_state = tesla_lead_speed_state(ui_state.sm)
+    lead_candidate = tesla_lead_speed_state(ui_state.sm)
+    lead_generation = self._tesla_lead_generation if lead_candidate is not None else None
+    lead_fade_step = 1.0 / max(1.0, float(gui_app.target_fps) * LEAD_FADE_SECONDS)
+    lead_state, lead_opacity = self._tesla_lead_speed_fade.update(
+      lead_candidate, lead_generation, lead_fade_step,
+    )
 
     def draw_column_text(text: str, text_y: float, text_size: int, color: rl.Color,
-                         outlined: bool = False) -> None:
+                         outlined: bool = False, opacity: float = 1.0) -> None:
       text_width = measure_text_cached(self._font_semi_bold, text, text_size, max_spacing).x
       text_pos = rl.Vector2(tesla_column_text_x(column_center_x, text_width), text_y)
       if outlined:
+        outline_color = color_with_opacity(TESLA_LEAD_SPEED_OUTLINE, opacity)
         for offset_x, offset_y in tesla_text_outline_offsets(TESLA_LEAD_SPEED_OUTLINE_WIDTH):
           rl.draw_text_ex(
             self._font_semi_bold, text,
             rl.Vector2(text_pos.x + offset_x, text_pos.y + offset_y),
-            text_size, max_spacing, TESLA_LEAD_SPEED_OUTLINE,
+            text_size, max_spacing, outline_color,
           )
       else:
         rl.draw_text_ex(
           self._font_semi_bold, text,
           rl.Vector2(text_pos.x + 1, text_pos.y + 1),
-          text_size, max_spacing, TESLA_TEXT_SHADOW,
+          text_size, max_spacing, color_with_opacity(TESLA_TEXT_SHADOW, opacity),
         )
-      rl.draw_text_ex(self._font_semi_bold, text, text_pos, text_size, max_spacing, color)
+      rl.draw_text_ex(
+        self._font_semi_bold, text, text_pos, text_size, max_spacing,
+        color_with_opacity(color, opacity),
+      )
 
     if lead_state is not None:
-      lead_speed, ego_speed = lead_state
+      _, lead_speed, ego_speed = lead_state
       lead_label = tr("LEAD:")
       lead_value = str(round(lead_speed * self.speed_conv))
       lead_color = tesla_lead_speed_color(lead_speed, ego_speed)
@@ -286,7 +311,7 @@ class HudRendererBP(HudRendererSP):
         (lead_label, y + 184, TESLA_LEAD_LABEL_SIZE, palette.max_inactive, False),
         (lead_value, y + 238, TESLA_LEAD_SPEED_SIZE, lead_color, True),
       ):
-        draw_column_text(text, text_y, text_size, color, outlined)
+        draw_column_text(text, text_y, text_size, color, outlined, lead_opacity)
 
     def draw_status_lamp(center_y: float, top: rl.Color, bottom: rl.Color) -> None:
       draw_tesla_status_lamp(
@@ -320,6 +345,8 @@ class HudRendererBP(HudRendererSP):
     # HUD elements use the (possibly offset) rect for positioning
     if self.is_cruise_available:
       self._draw_set_speed(rect)
+    else:
+      self.reset_tesla_lead_fade()
     self._draw_current_speed(rect)
 
     button_x = rect.x + rect.width - UI_CONFIG.border_size - UI_CONFIG.button_size

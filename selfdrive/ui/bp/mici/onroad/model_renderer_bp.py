@@ -12,12 +12,13 @@ from openpilot.selfdrive.ui.bp.onroad.rad_racer_road import RadRacerRoadMixin, R
 # BluePilot: seasonal theme packs (colors.json overrides for road colors)
 from openpilot.selfdrive.ui.bp.lib import theme_pack
 from openpilot.selfdrive.ui.bp.lib.longitudinal_visuals import (
-  approach_tesla_geometry_alpha,
+  TeslaPathPresentationState,
   advance_tesla_blue_phase,
   legacy_rainbow_cycle_rate,
   longitudinal_control_active,
   rainbow_cycle_rate,
   tesla_geometry_reliable,
+  tesla_model_confidence,
   tesla_path_mode,
 )
 from openpilot.selfdrive.ui.bp.lib.blindspot_visuals import tesla_blindspot_lane_active
@@ -30,11 +31,12 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
     self._bp_params = Params()
     self._rainbow_v = 0.0
     self._tesla_blue_phase = 0.0
-    self._tesla_path_visibility = 0.0
+    self._tesla_path_state = TeslaPathPresentationState()
     self._disable_lane_line_status_color = self._bp_params.get_bool("BPDisableLaneLineStatusColor")
     self._rainbow_lane_lines = self._bp_params.get_bool("BPRainbowLines")
     self._tesla_style = theme_pack.tesla_active(self._bp_params)
     self._tesla_dark_fraction = ui_state.tesla_dark_fraction
+    self._tesla_was_disengaged = ui_state.status == UIStatus.DISENGAGED
     # BluePilot: Rad Racer 8-bit theme (green game road; dash scroll animation state)
     self._rad_racer = theme_pack.rad_racer_active(self._bp_params)
     self._dash_phase = 0.0
@@ -53,9 +55,12 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
 
   def set_tesla_style(self, enabled: bool, dark_fraction: float = 0.0) -> None:
     if enabled != self._tesla_style:
-      self._tesla_path_visibility = 0.0
+      self._tesla_path_state.reset()
     self._tesla_style = enabled
     self._tesla_dark_fraction = dark_fraction
+
+  def reset_tesla_path_presentation(self) -> None:
+    self._tesla_path_state.reset()
 
   def _update_state(self):
     super()._update_state()
@@ -74,6 +79,10 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
       self._tesla_blue_phase = advance_tesla_blue_phase(
         self._tesla_blue_phase, self._rainbow_v, gui_app.target_fps,
       )
+      disengaged = ui_state.status == UIStatus.DISENGAGED
+      if disengaged and not self._tesla_was_disengaged:
+        self._tesla_path_state.reset()
+      self._tesla_was_disengaged = disengaged
     elif ui_state.rainbow_path or self._rainbow_lane_lines:
       self._rainbow_v = legacy_rainbow_cycle_rate(sm)
 
@@ -85,40 +94,59 @@ class ModelRendererBP(RadRacerRoadMixin, ModelRenderer):
   def _draw_path(self, sm):
     if self._tesla_style:
       palette = palette_for_dark_fraction(self._tesla_dark_fraction)
-      if not self._path.projected_points.size:
-        return
-      self._tesla_path_visibility = approach_tesla_geometry_alpha(
-        self._tesla_path_visibility,
-        tesla_geometry_reliable(self._path.raw_points, sm),
-        gui_app.target_fps,
+      model_available = (
+        sm.valid.get("modelV2", False) and
+        (not hasattr(sm, "alive") or sm.alive.get("modelV2", False))
       )
-      if self._tesla_path_visibility <= 0.01:
-        return
-      path_pts = self._path.projected_points + np.array([self._rect.x, self._rect.y], dtype=np.float32)
+      raw_points = self._path.raw_points if model_available else np.empty((0, 3), dtype=np.float32)
+      projected_points = self._path.projected_points if model_available else np.empty((0, 2), dtype=np.float32)
+      if projected_points.size:
+        projected_points = projected_points + np.array([self._rect.x, self._rect.y], dtype=np.float32)
+      speed_mps = float(sm["carState"].vEgo) if sm.valid.get("carState", False) else 0.0
+      layers = self._tesla_path_state.update(
+        raw_points,
+        projected_points,
+        confidence=tesla_model_confidence(sm, ui_state.status),
+        reliable=tesla_geometry_reliable(raw_points, sm),
+        speed_mps=speed_mps,
+      )
       mode = tesla_path_mode(
         ui_state.rainbow_path,
         longitudinal_control_active(sm, ui_state.status),
       )
-      if mode == "rainbow":
-        draw_rainbow_polygon(
-          self._rect,
-          path_pts,
-          rainbow_v=self._rainbow_v,
-          alpha=0.6 * self._tesla_path_visibility,
+
+      def draw_tesla_path(points: np.ndarray | None, opacity: float) -> None:
+        if points is None or not points.size or opacity <= 0.01:
+          return
+        if mode == "rainbow":
+          draw_rainbow_polygon(
+            self._rect, points, rainbow_v=self._rainbow_v, alpha=0.6 * opacity,
+          )
+        else:
+          phase = self._tesla_blue_phase if mode == "blue_cycle" else None
+          draw_polygon(
+            self._rect,
+            points,
+            gradient=Gradient(
+              start=(0.0, 1.0),
+              end=(0.0, 0.0),
+              colors=tesla_path_gradient_colors(palette, phase, opacity),
+              stops=[0.0, 0.32, 0.68, 1.0] if phase is not None else [0.0, 0.55, 1.0],
+            ),
+          )
+
+      draw_tesla_path(layers.full_points, layers.full_opacity)
+      if layers.near_raw_points is not None:
+        near_points = self._map_line_to_polygon(
+          layers.near_raw_points,
+          0.9,
+          self._path_offset_z,
+          len(layers.near_raw_points) - 1,
+          allow_invert=False,
         )
-      else:
-        phase = self._tesla_blue_phase if mode == "blue_cycle" else None
-        colors = tesla_path_gradient_colors(palette, phase, self._tesla_path_visibility)
-        draw_polygon(
-          self._rect,
-          path_pts,
-          gradient=Gradient(
-            start=(0.0, 1.0),
-            end=(0.0, 0.0),
-            colors=colors,
-            stops=[0.0, 0.32, 0.68, 1.0] if phase is not None else [0.0, 0.55, 1.0],
-          ),
-        )
+        if near_points.size:
+          near_points = near_points + np.array([self._rect.x, self._rect.y], dtype=np.float32)
+        draw_tesla_path(near_points, layers.near_opacity)
       return
     # BluePilot: Rad Racer theme draws the path ribbon in _draw_rad_racer_road
     if self._rad_racer:
