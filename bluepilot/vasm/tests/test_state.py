@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from openpilot.common.params import UnknownKeyName
 from openpilot.bluepilot.vasm.state import combined_blindspots, get_vasm_blindspots
 
 
@@ -24,3 +25,11 @@ def test_combined_blindspots_preserves_oem_detection():
   car_state = SimpleNamespace(leftBlindspot=True, rightBlindspot=False)
   params = FakeParams({"VASMHeartbeat": 10.0, "VASMLeftActive": False, "VASMRightActive": True})
   assert combined_blindspots(car_state, params, now=11.0) == (True, True)
+
+
+def test_unknown_keys_fail_closed_for_stale_quickboot_build():
+  class StaleParams:
+    def get(self, key):
+      raise UnknownKeyName(key)
+
+  assert get_vasm_blindspots(StaleParams(), now=11.0) == (False, False)

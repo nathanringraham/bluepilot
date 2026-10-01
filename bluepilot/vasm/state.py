@@ -3,7 +3,7 @@ from __future__ import annotations
 import platform
 import time
 
-from openpilot.common.params import Params
+from openpilot.common.params import Params, UnknownKeyName
 
 
 VASM_STATE_MAX_AGE = 4.0
@@ -24,7 +24,7 @@ def get_vasm_blindspots(params_memory: Params, now: float | None = None) -> tupl
     if heartbeat <= 0.0 or now - heartbeat > VASM_STATE_MAX_AGE:
       return False, False
     return params_memory.get_bool("VASMLeftActive"), params_memory.get_bool("VASMRightActive")
-  except (TypeError, ValueError):
+  except (TypeError, ValueError, UnknownKeyName):
     return False, False
 
 

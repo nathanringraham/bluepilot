@@ -10,13 +10,9 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import time
 
-import cv2
-import numpy as np
-
 import cereal.messaging as messaging
 from openpilot.bluepilot.vasm.cpu_throttle import CpuThrottle
 from openpilot.bluepilot.vasm.config import normalize_annotation_config
-from openpilot.bluepilot.vasm.inference import VASMInference
 from openpilot.bluepilot.vasm.state import get_memory_params
 from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper, set_core_affinity
@@ -31,7 +27,7 @@ STATUS_LOG_INTERVAL = 10.0
 
 
 class VASMDaemon:
-  def __init__(self):
+  def __init__(self, cv2_module, numpy_module, inference_class):
     from msgq.visionipc import VisionIpcClient, VisionStreamType
 
     self.params = Params()
@@ -41,7 +37,9 @@ class VASMDaemon:
     self.stream_type = VisionStreamType.VISION_STREAM_DRIVER
     self.client = None
 
-    self.inference = VASMInference()
+    self.cv2 = cv2_module
+    self.np = numpy_module
+    self.inference = inference_class()
     self.throttle = CpuThrottle()
     self.enabled = False
     self.annotation_loaded = False
@@ -185,7 +183,7 @@ class VASMDaemon:
         self.last_inference_at = now
         self.last_inference_at_side[self.current_side] = now
 
-        image = np.frombuffer(buffer.data, dtype=np.uint8).reshape((len(buffer.data) // self.client.stride, self.client.stride))
+        image = self.np.frombuffer(buffer.data, dtype=self.np.uint8).reshape((len(buffer.data) // self.client.stride, self.client.stride))
         if self.client.stride != self.client.width:
           image = image[:, :self.client.width]
 
@@ -214,11 +212,21 @@ class VASMDaemon:
 
 def main() -> None:
   try:
+    import cv2
+    import numpy as np
+    from openpilot.bluepilot.vasm.inference import VASMInference
+  except (ImportError, OSError) as exc:
+    # Optional native dependencies can be absent in a stale Quickboot environment. The
+    # manager and all driving processes must remain available while V-ASM fails closed.
+    print(f"[VASM] disabled: runtime dependency unavailable: {exc}")
+    return
+
+  try:
     os.nice(19)
   except OSError:
     pass
   cv2.setNumThreads(1)
-  VASMDaemon().run()
+  VASMDaemon(cv2, np, VASMInference).run()
 
 
 if __name__ == "__main__":
