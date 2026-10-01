@@ -146,6 +146,7 @@ from bluepilot.backend.params.params_manager import (
 )
 from bluepilot.backend.params.params_watcher import ParamsWatcher
 from bluepilot.vasm.config import normalize_annotation_config
+from bluepilot.vasm.snapshot import SnapshotUnavailable, capture_parked_driver_snapshot
 from bluepilot.vasm.state import get_memory_params, get_vasm_blindspots
 
 # Cache management
@@ -192,17 +193,28 @@ vasm_params_memory = get_memory_params(params)
 
 
 def get_vasm_snapshot():
-    """Return a parked driver-camera JPEG from the newest readable route segment."""
+    """Return a fresh parked driver-camera JPEG, with recorded footage as fallback."""
+    live_error = None
+    try:
+        return capture_parked_driver_snapshot(params)
+    except SnapshotUnavailable as exc:
+        live_error = exc
+        logger.warning(f"Live V-ASM driver-camera snapshot unavailable: {exc}")
+
     if not FFMPEG_BINARY or not os.path.isdir(ROUTES_DIR):
-        return None
+        raise live_error or SnapshotUnavailable("No driver-camera snapshot is available.")
 
     # Never fall back to a road-facing camera: its coordinates would make the
     # driver-window polygons invalid and silently defeat the monitor.
     candidates = list(Path(ROUTES_DIR).glob("*/dcamera.hevc"))
     candidates.sort(key=lambda path: path.stat().st_mtime if path.exists() else 0, reverse=True)
+    fallback_deadline = time.monotonic() + 10.0
 
     for camera_path in candidates[:6]:
         for seek_seconds in (5, 2, None):
+            remaining = fallback_deadline - time.monotonic()
+            if remaining <= 0:
+                raise live_error or SnapshotUnavailable("No driver-camera snapshot is available.")
             command = [
                 FFMPEG_BINARY, "-hide_banner", "-loglevel", "error", "-nostdin",
                 "-i", str(camera_path),
@@ -211,12 +223,12 @@ def get_vasm_snapshot():
                 command.extend(["-ss", str(seek_seconds)])
             command.extend(["-frames:v", "1", "-q:v", "2", "-f", "image2pipe", "-vcodec", "mjpeg", "-"])
             try:
-                result = subprocess.run(command, capture_output=True, check=True, timeout=8, stdin=subprocess.DEVNULL)
+                result = subprocess.run(command, capture_output=True, check=True, timeout=min(4.0, remaining), stdin=subprocess.DEVNULL)
                 if result.stdout:
                     return result.stdout
             except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, OSError):
                 continue
-    return None
+    raise live_error or SnapshotUnavailable("No driver-camera snapshot is available.")
 
 
 def restart_ui_process():
@@ -964,11 +976,11 @@ class WebRoutesHandler(BaseHTTPRequestHandler):
                 })
 
             elif path == '/api/vasm/snapshot':
-                snapshot = get_vasm_snapshot()
-                if snapshot is None:
-                    self.send_json_response({'error': 'No driver-camera footage is available yet'}, 404)
-                else:
+                try:
+                    snapshot = get_vasm_snapshot()
                     self.send_bytes_response(snapshot, 'image/jpeg')
+                except SnapshotUnavailable as exc:
+                    self.send_json_response({'error': str(exc)}, 503)
 
             elif path == '/api/health':
                 # Health check endpoint for monitoring
