@@ -1,6 +1,8 @@
+import hashlib
+
 import numpy as np
 
-from openpilot.bluepilot.vasm.inference import VASMInference, detection_confidence
+from openpilot.bluepilot.vasm.inference import VASMInference, VASM_MODEL_SHA256, detection_confidence
 
 
 def test_detection_confidence_filters_non_vehicle_class():
@@ -21,18 +23,18 @@ def test_load_config_rejects_missing_geometry(tmp_path):
 
 
 def test_update_preprocesses_nv12_and_activates_detection(tmp_path):
-  class FakeSession:
+  class FakeNet:
     def __init__(self):
       self.input_shape = None
 
-    def run(self, output_names, inputs):
-      self.input_shape = inputs["images"].shape
-      return [np.array([[[0, 0, 0, 0, 0.9, 0]]], dtype=np.float32)]
+    def setInput(self, model_input):
+      self.input_shape = model_input.shape
+
+    def forward(self):
+      return np.array([[[0, 0, 0, 0, 0.9, 0]]], dtype=np.float32)
 
   inference = VASMInference(tmp_path / "missing.onnx")
-  inference.session = FakeSession()
-  inference.input_name = "images"
-  inference.output_name = "output0"
+  inference.net = FakeNet()
   inference.valid = True
   assert inference.load_config({
     "width": 64,
@@ -43,6 +45,22 @@ def test_update_preprocesses_nv12_and_activates_detection(tmp_path):
 
   nv12 = np.zeros((48 * 3 // 2, 64), dtype=np.uint8)
   left_active, right_active = inference.update(nv12, 64, 48, 0.5, 0.85, 0.2, "left")
-  assert inference.session.input_shape == (1, 3, 256, 352)
+  assert inference.net.input_shape == (1, 3, 256, 352)
   assert left_active
   assert not right_active
+
+
+def test_bundled_model_loads_and_runs_with_opencv():
+  inference = VASMInference()
+  assert hashlib.sha256(inference.model_path.read_bytes()).hexdigest() == VASM_MODEL_SHA256
+  assert inference.load(), inference.last_error
+  assert inference.load_config({
+    "width": 64,
+    "height": 48,
+    "poly_left": [[0, 0], [62, 0], [62, 46], [0, 46]],
+    "poly_right": [],
+  })
+  nv12 = np.zeros((48 * 3 // 2, 64), dtype=np.uint8)
+  left_active, right_active = inference.update(nv12, 64, 48, 0.5, 0.85, 0.2, "left")
+  assert isinstance(left_active, bool)
+  assert isinstance(right_active, bool)

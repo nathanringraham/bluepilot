@@ -7,6 +7,9 @@ import numpy as np
 
 
 VASM_MODEL_PATH = Path(__file__).resolve().parents[1] / "assets" / "vision_models" / "v_asm_model.onnx"
+# StarPilot's integrated export keeps 299 final candidates so OpenCV's TopK
+# importer can load it. The original 300-candidate PR export is incompatible.
+VASM_MODEL_SHA256 = "00247ede5159dff9a0768c171095711d40f1ee109ac7b5e24adce344fe4ba6f9"
 
 MODEL_INPUT_H = 256
 MODEL_INPUT_W = 352
@@ -34,9 +37,7 @@ def detection_confidence(output: np.ndarray) -> float:
 class VASMInference:
   def __init__(self, model_path: Path = VASM_MODEL_PATH):
     self.model_path = model_path
-    self.session = None
-    self.input_name = ""
-    self.output_name = ""
+    self.net = None
     self.valid = False
     self.last_error = ""
 
@@ -54,20 +55,13 @@ class VASMInference:
       self.last_error = f"Missing model: {self.model_path}"
       return False
     try:
-      import onnxruntime as ort
-
-      options = ort.SessionOptions()
-      options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-      options.intra_op_num_threads = 1
-      options.inter_op_num_threads = 1
-      options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-      self.session = ort.InferenceSession(str(self.model_path), sess_options=options, providers=["CPUExecutionProvider"])
-      self.input_name = self.session.get_inputs()[0].name
-      self.output_name = self.session.get_outputs()[0].name
+      self.net = cv2.dnn.readNetFromONNX(str(self.model_path))
+      self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+      self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
       self.valid = True
       self.last_error = ""
     except Exception as exc:
-      self.session = None
+      self.net = None
       self.valid = False
       self.last_error = f"Failed to load model: {exc}"
     return self.valid
@@ -132,7 +126,7 @@ class VASMInference:
 
   def _run_inference(self, raw_image: np.ndarray, height: int, side: str) -> float:
     bbox = self.bboxes[side]
-    if bbox is None or self.session is None:
+    if bbox is None or self.net is None:
       return 0.0
     x, y, width, box_height = bbox
 
@@ -144,7 +138,8 @@ class VASMInference:
 
     resized = cv2.resize(crop_rgb, (MODEL_INPUT_W, MODEL_INPUT_H), interpolation=cv2.INTER_LINEAR)
     model_input = np.expand_dims(np.transpose(resized.astype(np.float32) / 255.0, (2, 0, 1)), axis=0)
-    output = self.session.run([self.output_name], {self.input_name: model_input})[0]
+    self.net.setInput(model_input)
+    output = self.net.forward()
     return detection_confidence(output)
 
   def update(self, raw_image: np.ndarray, width: int, height: int, dt: float,

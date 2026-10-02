@@ -26,6 +26,13 @@ PARAM_REFRESH_INTERVAL = 2.0
 STATUS_LOG_INTERVAL = 10.0
 
 
+def _run_disabled(reason: str) -> None:
+  """Keep this optional managed process alive while its outputs fail closed."""
+  print(f"[VASM] disabled: {reason}")
+  while True:
+    time.sleep(60.0)
+
+
 class VASMDaemon:
   def __init__(self, cv2_module, numpy_module, inference_class):
     from msgq.visionipc import VisionIpcClient, VisionStreamType
@@ -215,18 +222,20 @@ def main() -> None:
     import cv2
     import numpy as np
     from openpilot.bluepilot.vasm.inference import VASMInference
+    try:
+      os.nice(19)
+    except OSError:
+      pass
+    cv2.setNumThreads(1)
+    VASMDaemon(cv2, np, VASMInference).run()
   except (ImportError, OSError) as exc:
-    # Optional native dependencies can be absent in a stale Quickboot environment. The
-    # manager and all driving processes must remain available while V-ASM fails closed.
-    print(f"[VASM] disabled: runtime dependency unavailable: {exc}")
-    return
-
-  try:
-    os.nice(19)
-  except OSError:
-    pass
-  cv2.setNumThreads(1)
-  VASMDaemon(cv2, np, VASMInference).run()
+    # Optional native dependencies can be absent in a stale Quickboot environment.
+    # Remain alive and fail closed so this experimental aid never blocks engagement.
+    _run_disabled(f"runtime dependency unavailable: {exc}")
+  except Exception as exc:
+    # Initialization errors happen before the daemon's guarded run loop. Treat them as
+    # a disabled optional aid rather than a mandatory driving-process failure.
+    _run_disabled(f"startup failed: {exc}")
 
 
 if __name__ == "__main__":

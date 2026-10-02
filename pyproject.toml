@@ -75,7 +75,6 @@ dependencies = [
   "zstandard",
 
   # BluePilot V-ASM (StarPilot PR #75 port)
-  "onnxruntime >=1.23,<1.31",
   "opencv-python-headless",
   # End BluePilot
 

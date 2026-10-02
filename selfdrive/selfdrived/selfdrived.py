@@ -58,6 +58,8 @@ IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
 # BluePilot: debounce for the generic commIssue catch-all, see the comment at its use site
 # (update_events) for why. 20 frames @ 100Hz = 200ms.
 COMM_ISSUE_DEBOUNCE_FRAMES = 20
+# Optional enhancements must fail closed without becoming engagement blockers.
+NON_CRITICAL_PROCESSES = {"mapd", "adj_spot_monitor_vision"}
 # End BluePilot
 
 
@@ -162,7 +164,7 @@ class SelfdriveD(CruiseHelper):
     self.state_machine = StateMachine()
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
-    self.ignored_processes = {'mapd', }
+    self.ignored_processes = NON_CRITICAL_PROCESSES
 
     # Determine startup event
     is_remote = build_metadata.openpilot.comma_remote or build_metadata.openpilot.sunnypilot_remote

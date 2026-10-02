@@ -6,18 +6,21 @@ from openpilot.common.params import UnknownKeyName
 
 
 def test_daemon_import_does_not_load_optional_native_dependencies(monkeypatch):
-  """Manager prepare must never require cv2 or ONNX Runtime just to boot."""
+  """Manager prepare must never require OpenCV just to boot."""
   real_import = builtins.__import__
 
   def guarded_import(name, global_vars=None, local_vars=None, fromlist=(), level=0):
-    if name.split(".", 1)[0] in {"cv2", "onnxruntime"}:
+    if name.split(".", 1)[0] == "cv2":
       raise ModuleNotFoundError(name)
     return real_import(name, global_vars, local_vars, fromlist, level)
 
   sys.modules.pop("openpilot.bluepilot.vasm.daemon", None)
   monkeypatch.setattr(builtins, "__import__", guarded_import)
   daemon = importlib.import_module("openpilot.bluepilot.vasm.daemon")
+  disabled_reasons = []
+  monkeypatch.setattr(daemon, "_run_disabled", disabled_reasons.append)
   daemon.main()
+  assert disabled_reasons and "runtime dependency unavailable" in disabled_reasons[0]
 
 
 def test_vasm_process_skips_manager_preimport(monkeypatch):
@@ -27,6 +30,12 @@ def test_vasm_process_skips_manager_preimport(monkeypatch):
   assert not process.preimport
   monkeypatch.setattr(importlib, "import_module", lambda _: (_ for _ in ()).throw(AssertionError("unexpected pre-import")))
   process.prepare()
+
+
+def test_vasm_is_non_critical_to_engagement():
+  from openpilot.selfdrive.selfdrived.selfdrived import NON_CRITICAL_PROCESSES
+
+  assert "adj_spot_monitor_vision" in NON_CRITICAL_PROCESSES
 
 
 def test_vasm_process_stays_disabled_with_stale_param_binary():
